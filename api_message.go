@@ -42,7 +42,12 @@ const (
 	ActionTypeLink = 0
 	// ActionTypeCallback reports the click back to the bot.
 	ActionTypeCallback = 1
-	// ActionTypeCommand inserts @bot and the data into the composer.
+	// ActionTypeCommand inserts the data into the composer for the user to
+	// send, rather than reporting a click.
+	//
+	// Production confirmed it produces no INTERACTION_CREATE event, so nothing
+	// needs answering: the button filled the composer with its data and the
+	// person sent it as an ordinary message.
 	ActionTypeCommand = 2
 )
 
@@ -151,8 +156,12 @@ type Button struct {
 	RenderData *RenderData `json:"render_data,omitempty"`
 	// Action controls what a click does.
 	Action *Action `json:"action,omitempty"`
-	// GroupID greys out the other buttons of the group once one is used.
-	// Only meaningful when Action.Type is ActionTypeCallback.
+	// GroupID greys out the other buttons of the group once one is used, so
+	// the rest cannot be clicked. Only meaningful when Action.Type is
+	// ActionTypeCallback.
+	//
+	// Buttons without a group are independent: production showed that using one
+	// leaves its ungrouped neighbours clickable.
 	GroupID string `json:"group_id,omitempty"`
 }
 

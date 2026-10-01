@@ -16,10 +16,20 @@ import (
 type InteractionCode int
 
 // The documented results of answering an interaction.
+//
+// Production showed the code also decides whether the button can be clicked
+// again:
+//
+//   - InteractionCodeSuccess leaves the button in its visited, unclickable
+//     state, so the action is done for that message.
+//   - Any other code leaves the button clickable, so answering with
+//     InteractionCodeFailed is how a bot offers a retry.
 const (
-	// InteractionCodeSuccess reports that the action succeeded.
+	// InteractionCodeSuccess reports that the action succeeded, and leaves the
+	// button unclickable.
 	InteractionCodeSuccess InteractionCode = 0
-	// InteractionCodeFailed reports that the action failed.
+	// InteractionCodeFailed reports that the action failed, and leaves the
+	// button clickable for a retry.
 	InteractionCodeFailed InteractionCode = 1
 	// InteractionCodeTooFrequent reports that the user acted too often.
 	InteractionCodeTooFrequent InteractionCode = 2
