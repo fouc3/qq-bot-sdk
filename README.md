@@ -522,6 +522,25 @@ client.RegisterFunc(qqbotsdk.EventInteractionCreate, func(ctx context.Context, e
 - `interaction_id` 取自事件的 **`d.id`**。文档特别提醒**不带 `INTERACTION_CREATE:` 前缀**；SDK 会容忍你误带前缀（自动剥掉）并做转义，但正确写法就是 `data.ID`。
 - 本地只校验 `interaction_id` 非空、`code` 在 0–5 之间。**平台侧条件靠平台兜底**：窗口过期、token 与 appid 不匹配这些只有平台知道，会以 `630001–630008` 的 `OpenAPIError` 返回（如 `ErrInteractionAppIDMismatch` 表示 AppID 与 interaction_id 不匹配）。
 
+#### 点过一次的按钮就点不动了
+
+生产实测：**回调按钮被点击一次后，那条消息里的按钮变成不可点击状态**（显示 `render_data.visited_label`）。这与文档的 `action.click_limit`（已弃用，标注"默认不限"）表面矛盾 —— 所以按钮变灰**不是因为点击次数上限**，而是按钮进入了"已访问"状态。
+
+对写机器人的实际影响：**一条消息里的按钮只点一次**。想让用户能再点，就**再发一条带新键盘的消息**（每个消息各自带自己的键盘），已签到类功能就是这个套路：
+
+```go
+// 每次处理完，回一条新消息带新按钮，而不是指望旧按钮还能点
+client.SendC2CMessage(ctx, openID, &qqbotsdk.Message{
+	MsgType:  qqbotsdk.MsgTypeMarkdown,
+	Markdown: &qqbotsdk.MessageMarkdown{Content: "签到成功，明天再来"},
+	Keyboard: newKeyboard(), // 新消息 = 可点击的新按钮
+	MsgID:    data.ID,
+	MsgSeq:   1,
+})
+```
+
+> 未验证：回应 `code != 0`（如操作失败）时按钮是否保持可点击 —— 需要一个真人点击才能测。
+
 ### 主动消息与被动消息
 
 填了 `msg_id` 或 `event_id` 即被动回复，不填即主动消息。时效与次数（官方）：

@@ -161,6 +161,11 @@ type RenderData struct {
 	// Label is the button text, at most 10 characters.
 	Label string `json:"label,omitempty"`
 	// VisitedLabel is the text shown after a click.
+	//
+	// It is also the state the button stays in: production showed that once a
+	// callback button has been clicked, that message's button can no longer be
+	// clicked at all. To offer the action again, send a new message carrying a
+	// new keyboard rather than expecting the old button to work twice.
 	VisitedLabel string `json:"visited_label,omitempty"`
 	// Style is one of the KeyboardStyle values.
 	Style int `json:"style,omitempty"`
