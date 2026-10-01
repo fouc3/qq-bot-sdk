@@ -212,7 +212,14 @@ func (c *Client) doJSON(ctx context.Context, method, path string, payload, out a
 		}
 		body = bytes.NewReader(data)
 	}
+	return c.do(ctx, method, path, body, DefaultContentType, out, kind)
+}
 
+// do sends one request and decodes the JSON response into out.
+//
+// contentType overrides the documented default, which the endpoints accepting
+// multipart/form-data need. A caller override of Content-Type always wins.
+func (c *Client) do(ctx context.Context, method, path string, body io.Reader, contentType string, out any, kind callKind) error {
 	url := c.baseURL + path
 	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
@@ -222,6 +229,11 @@ func (c *Client) doJSON(ctx context.Context, method, path string, payload, out a
 	headers, err := c.requestHeaders(ctx, kind == openAPICall)
 	if err != nil {
 		return err
+	}
+	// requestHeaders already applies the documented default, so only the
+	// caller's own override should beat the per-call contentType.
+	if contentType != "" && c.headers.Get("Content-Type") == "" {
+		headers.Set("Content-Type", contentType)
 	}
 	req.Header = headers
 

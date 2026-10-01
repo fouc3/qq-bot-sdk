@@ -378,7 +378,7 @@ func TestWebhookInsecureSkipVerify(t *testing.T) {
 // TestWebhookStandaloneServer covers Start and Stop against a real listener.
 func TestWebhookStandaloneServer(t *testing.T) {
 	transport := NewWebhookTransport(
-		WithWebhookAddr("127.0.0.1:8080"),
+		WithWebhookAddr("127.0.0.1:0"),
 		WithWebhookPath("/events"),
 		WithWebhookSecret(fixtureSecret),
 	)
@@ -446,7 +446,7 @@ func TestWebhookStandaloneServer(t *testing.T) {
 
 func TestWebhookStartTwiceIsRejected(t *testing.T) {
 	transport := NewWebhookTransport(
-		WithWebhookAddr("127.0.0.1:8080"),
+		WithWebhookAddr("127.0.0.1:0"),
 		WithWebhookSecret(fixtureSecret),
 	)
 	dispatcher := NewDispatcher()

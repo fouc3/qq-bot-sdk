@@ -241,7 +241,7 @@ func TestClientStartInstallsWebhookWiring(t *testing.T) {
 	client := NewClient("id", "secret")
 
 	webhook := NewWebhookTransport(
-		WithWebhookAddr("127.0.0.1:8080"),
+		WithWebhookAddr("127.0.0.1:0"),
 		WithWebhookPath("/events"),
 		WithWebhookSecret(fixtureSecret),
 		WithWebhookSyncDispatch(true),
@@ -328,6 +328,7 @@ func TestStartInstallsErrorReporting(t *testing.T) {
 	client := NewClient("", "")
 
 	webhook := NewWebhookTransport(
+		WithWebhookAddr("127.0.0.1:0"),
 		WithWebhookPath("/events"),
 		WithWebhookSecret(fixtureSecret),
 	)
@@ -528,4 +529,76 @@ func TestWebSocketShardIsSent(t *testing.T) {
 	if !waitFor(t, 3*time.Second, func() bool { return h.connCount() >= 1 }) {
 		t.Fatal("the client never connected")
 	}
+}
+
+// TestTransportStateFinishIsConcurrencySafe covers the double-close panic that
+// used to happen when a transport's run loop and Stop raced on finish: probing
+// the done channel with select and then closing it is not atomic, so two
+// callers could both see it open and the second close panicked.
+//
+// The workers are released from a barrier so they reach the close decision
+// together; without the fix this test panics with "close of closed channel".
+func TestTransportStateFinishIsConcurrencySafe(t *testing.T) {
+	const rounds, workers = 2000, 8
+
+	for round := 0; round < rounds; round++ {
+		var state transportState
+		if _, err := state.begin(context.Background()); err != nil {
+			t.Fatalf("round %d: begin: %v", round, err)
+		}
+		done := state.end()
+
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for worker := 0; worker < workers; worker++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				state.finish()
+			}()
+		}
+		close(start)
+		wg.Wait()
+
+		select {
+		case <-done:
+		default:
+			t.Fatalf("round %d: done must be closed once finish ran", round)
+		}
+	}
+}
+
+// TestTransportStateBeginAfterFinish checks that a transport can be started
+// again after it stopped, which the reset of the closed flag must allow.
+func TestTransportStateBeginAfterFinish(t *testing.T) {
+	var state transportState
+
+	if _, err := state.begin(context.Background()); err != nil {
+		t.Fatalf("first begin: %v", err)
+	}
+	first := state.end()
+	state.finish()
+	select {
+	case <-first:
+	default:
+		t.Fatal("the first run must be closed")
+	}
+
+	if _, err := state.begin(context.Background()); err != nil {
+		t.Fatalf("second begin: %v", err)
+	}
+	second := state.end()
+	if second == first {
+		t.Fatal("a restart must allocate a fresh done channel")
+	}
+	state.finish()
+	select {
+	case <-second:
+	default:
+		t.Fatal("the second run must be closed")
+	}
+
+	// finish after finish must be a no-op rather than a panic.
+	state.finish()
 }

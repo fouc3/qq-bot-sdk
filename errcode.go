@@ -6,10 +6,16 @@ package qqbotsdk
 // defined here are the common codes listed in the API call guide.
 type OpenAPIErrorCode int
 
-// String returns the documented symbolic name of the code, or "" when the code
-// is unknown. Only codes named in the API call guide have a name.
+// String returns the documented name of the code, or "" when the code is not
+// part of a documented table.
+//
+// It consults the common table from the API call guide first, then the
+// per-endpoint tables such as the message codes.
 func (c OpenAPIErrorCode) String() string {
 	if name, ok := openAPIErrorNames[c]; ok {
+		return name
+	}
+	if name, ok := messageErrorNames[c]; ok {
 		return name
 	}
 	return ""

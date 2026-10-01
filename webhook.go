@@ -344,6 +344,10 @@ func (w *WebhookTransport) Start(ctx context.Context, dispatch DispatchFunc) err
 
 // validateAddr rejects a listen address on a port the platform never calls
 // back on, which would otherwise look like a silently broken webhook.
+//
+// Port 0 is accepted: it asks the operating system for a free port, which suits
+// tests and a process behind a load balancer that publishes one of the allowed
+// ports. Read the chosen port back with Addr.
 func (w *WebhookTransport) validateAddr() error {
 	_, port, err := net.SplitHostPort(w.addr)
 	if err != nil {
@@ -352,6 +356,9 @@ func (w *WebhookTransport) validateAddr() error {
 	number, err := strconv.Atoi(port)
 	if err != nil {
 		return fmt.Errorf("qqbotsdk: webhook addr %q: invalid port: %w", w.addr, err)
+	}
+	if number == 0 {
+		return nil
 	}
 	for _, allowed := range AllowedCallbackPorts {
 		if number == allowed {

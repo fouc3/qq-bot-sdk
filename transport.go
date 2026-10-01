@@ -183,6 +183,11 @@ type transportState struct {
 	started bool
 	cancel  context.CancelFunc
 	done    chan struct{}
+	// closed records that done has been closed, so a second concurrent finish
+	// cannot close it again. Deciding under the mutex matters: probing the
+	// channel with select and then closing is not atomic, and two callers can
+	// both observe it open and panic on the second close.
+	closed bool
 }
 
 // begin marks the transport as started and returns a context that stops when
@@ -197,6 +202,7 @@ func (s *transportState) begin(ctx context.Context) (context.Context, error) {
 	s.started = true
 	s.cancel = cancel
 	s.done = make(chan struct{})
+	s.closed = false
 	return runCtx, nil
 }
 
@@ -209,24 +215,26 @@ func (s *transportState) end() chan struct{} {
 }
 
 // finish cancels the run context and closes the done channel.
+//
+// It is safe to call concurrently, and more than once: the run loop and Stop
+// both call it.
 func (s *transportState) finish() {
 	s.mu.Lock()
 	cancel := s.cancel
 	done := s.done
 	s.started = false
 	s.cancel = nil
+	shouldClose := done != nil && !s.closed
+	if shouldClose {
+		s.closed = true
+	}
 	s.mu.Unlock()
 
 	if cancel != nil {
 		cancel()
 	}
-	if done != nil {
-		select {
-		case <-done:
-			// Already closed by a concurrent stop.
-		default:
-			close(done)
-		}
+	if shouldClose {
+		close(done)
 	}
 }
 

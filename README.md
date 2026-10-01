@@ -27,6 +27,18 @@ QQ 机器人（QQ Bot）开放平台 SDK，Go 实现。参考官方文档：[QQ 
 | `Signer` | Ed25519 签名与验签，回调地址验证应答 |
 | `GetGateway` / `GetGatewayBot` | 获取 WSS 接入点（含分片建议与 session 限额） |
 | `ShardID` | 分片计算：`(guild_id >> 22) % num_shards` |
+| `SendC2CMessage` | 发送单聊消息 |
+| `SendC2CStreamMessage` | 流式发送单聊消息 |
+| `SendGroupMessage` | 发送群聊消息 |
+| `SendChannelMessage` | 发送子频道消息（JSON 或 multipart 带图） |
+| `SendDirectMessage` | 发送频道私信 |
+| `CreateDirectMessageSession` | 创建频道私信会话 |
+| `RecallC2CMessage` / `RecallGroupMessage` | 撤回单聊／群聊消息 |
+| `RecallChannelMessage` / `RecallDirectMessage` | 撤回子频道／私信消息 |
+| `UploadC2CFile` / `UploadGroupFile` | 富媒体 URL 上传，或分片上传合并 |
+| `PrepareC2CUpload` / `FinishC2CUploadPart` | 分片上传的预上传与分片完成（群聊同理） |
+| `Message` / `Keyboard` / `MessageArk` / `MessageEmbed` | 消息类型与卡片、按钮等请求结构 |
+| 消息错误码 | `errcode_message.go`，约 60 个按接口归类的错误码 |
 
 ## 安装
 
@@ -323,6 +335,121 @@ defer client.Stop(context.Background()) // 反向停止并等待在途处理器
 ```
 
 可只用 Webhook、只用 WebSocket，或两者同时启用。`Start` 期间任一 transport 启动失败，已启动的会被回滚停止；取消 `ctx` 等同于 `Stop`。
+
+## 发送消息
+
+官方文档：[消息收发概述](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/overview.html)。
+
+### 接口一览
+
+| 场景 | 接口 | 方法 |
+| --- | --- | --- |
+| 单聊 | `SendC2CMessage` | `POST /v2/users/{user_openid}/messages` |
+| 单聊流式 | `SendC2CStreamMessage` | `POST /v2/users/{user_openid}/stream_messages` |
+| 群聊 | `SendGroupMessage` | `POST /v2/groups/{group_openid}/messages` |
+| 子频道 | `SendChannelMessage` | `POST /channels/{channel_id}/messages` |
+| 子频道（带图） | `SendChannelMessageMultipart` | 同上，`multipart/form-data` |
+| 频道私信 | `SendDirectMessage` | `POST /dms/{guild_id}/messages` |
+| 创建私信会话 | `CreateDirectMessageSession` | `POST /users/@me/dms` |
+| 撤回单聊 | `RecallC2CMessage` | `DELETE /v2/users/{user_openid}/messages/{message_id}` |
+| 撤回群聊 | `RecallGroupMessage` | `DELETE /v2/groups/{group_openid}/messages/{message_id}` |
+| 撤回子频道 | `RecallChannelMessage` | `DELETE /channels/{channel_id}/messages/{message_id}?hidetip=` |
+| 撤回私信 | `RecallDirectMessage` | `DELETE /dms/{guild_id}/messages/{message_id}?hidetip=` |
+
+### 消息类型
+
+`msg_type` 决定哪个字段生效（单聊/群聊接口）：
+
+| 值 | 常量 | 内容字段 |
+| --- | --- | --- |
+| 0 | `MsgTypeText` | `content` |
+| 2 | `MsgTypeMarkdown` | `markdown` |
+| 6 | `MsgTypeInputNotify` | `input_notify`（"输入中"状态，仅单聊） |
+| 7 | `MsgTypeMedia` | `media`（需先上传拿 `file_info`） |
+
+```go
+// 被动回复一条群消息
+if _, err := client.SendGroupMessage(ctx, groupOpenID, &qqbotsdk.Message{
+	Content: "收到",
+	MsgID:   event.ID,  // 事件里的 d.id
+	MsgSeq:  1,
+}); err != nil {
+	log.Fatal(err)
+}
+```
+
+### 主动消息与被动消息
+
+填了 `msg_id` 或 `event_id` 即被动回复，不填即主动消息。时效与次数（官方）：
+
+| 场景 | 被动有效期 | 每条可回复次数 |
+| --- | --- | --- |
+| 单聊 | 60 分钟 | 4 次 |
+| 群聊 | 5 分钟 | 5 次 |
+| 频道 / 私信 | 5 分钟 | - |
+
+同一 `msg_id` 会对相同 `msg_seq` 去重，重复发送同组合会失败 —— 多次回复同一消息请递增 `msg_seq`。主动消息受频控约束（如单聊未认证 5/qps 且 30/qpm），且用户可在客户端关闭接收。
+
+### 流式消息（仅单聊）
+
+首片不带 `stream_msg_id`，用响应 `id` 作为后续分片的 `stream_msg_id`，`index` 从 0 递增，末片 `input_state=10`：
+
+```go
+first, err := client.SendC2CStreamMessage(ctx, openID, &qqbotsdk.StreamMessage{
+	InputMode:   qqbotsdk.StreamInputReplace,
+	InputState:  qqbotsdk.StreamInputGenerating,
+	Index:       0,
+	ContentType: qqbotsdk.StreamContentMarkdown,
+	ContentRaw:  "正在生成…",
+	MsgID:       msgID,
+	MsgSeq:      1,
+})
+// 后续分片携带 first.ID
+```
+
+`input_mode=replace` 表示 `content_raw` 是当前全量正文，且必须以已下发前缀开头，否则报 `ErrStreamPrefixImmutable`（40007）。
+
+### 频道消息
+
+`SendChannelMessage` 用 JSON，`content` / `embed` / `ark` / `image` / `markdown` **至少填一个**。需要同请求上传图片时用 `SendChannelMessageMultipart`，SDK 会按文档要求把对象/数组字段序列化为 JSON 字符串：
+
+```go
+resp, err := client.SendChannelMessageMultipart(ctx, channelID,
+	&qqbotsdk.ChannelMessage{Content: "hi", Ark: ark},
+	&qqbotsdk.ChannelMessageFile{FileName: "pic.png", Content: file},
+)
+```
+
+> 频道发消息要求机器人保持 WebSocket 在线。
+
+### 富媒体上传
+
+图片/视频/语音/文件需先上传拿 `file_info`（有时效 `ttl`），再以 `msg_type=7` 发送。单聊与群聊的上传接口**互不通用**。
+
+```go
+// URL 上传
+up, err := client.UploadC2CFile(ctx, openID, &qqbotsdk.FileUploadRequest{
+	FileType: qqbotsdk.FileTypeImage,
+	URL:      "https://example.com/a.png",
+})
+// 用 up.FileInfo 发消息
+```
+
+大文件走分片（推荐）：`PrepareC2CUpload` 拿 `upload_id` 与各分片预签名 URL → 逐片 HTTP PUT → 每片 `FinishC2CUploadPart` → 最后带 `upload_id` 调 `UploadC2CFile` 合并。群聊把 `C2C` 换成 `Group`。
+
+`file_type`：1=图片(png/jpg)、2=视频(mp4)、3=语音(silk)、4=文件；超过软限制会降级为文件，超过硬限制(200MB)报错。
+
+### 消息错误码
+
+各接口的错误码已定义为常量（见 `errcode_message.go`），`OpenAPIErrorCode.String()` 会还原文档描述：
+
+```go
+if qqbotsdk.IsOpenAPIError(err, qqbotsdk.ErrReplyMsgIDExpired) {
+	// 40034005：回复消息 msg_id 已过期，需尽快回复
+}
+```
+
+常见：`ErrMsgTypeMismatch`(22006)、`ErrMessageContentViolation`(40034006)、`ErrMessageDeduplicated`(40054005)、`ErrActiveMessageRateLimited`(40034100)、`ErrFileTooLarge`(850031)、`ErrRecallTimeExceeded`(40064004)。
 
 ## 开发
 
