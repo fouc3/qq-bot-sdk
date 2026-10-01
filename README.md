@@ -40,6 +40,8 @@ QQ 机器人（QQ Bot）开放平台 SDK，Go 实现。参考官方文档：[QQ 
 | `Message` / `Keyboard` / `MessageArk` / `MessageEmbed` | 消息类型与卡片、按钮等请求结构 |
 | `AddReaction` / `RemoveReaction` | 频道消息的表情表态（添加／删除） |
 | `ReactionUsers` | 拉取某条消息某表情的表态用户（分页） |
+| `GetBotInfo` | 获取机器人自身详情 `GET /users/@me` |
+| `GetJoinedGuilds` | 获取机器人已加入的频道列表（分页） |
 | 消息错误码 | `errcode_message.go`，约 60 个按接口归类的错误码 |
 
 ## 安装
@@ -481,6 +483,29 @@ if err := client.AddReaction(ctx, channelID, messageID, emojiType, id); err != n
 | @某人 | `<qqbot-at-user id="" />` | 群聊、文字子频道 |
 | @全体成员 | `<qqbot-at-everyone />` | 仅文字子频道（需权限） |
 | 回车指令 | `<qqbot-cmd-enter text="xxx" />` | markdown；`text` 需 urlencode，≤100 字符 |
+
+## 机器人信息
+
+官方文档：[获取机器人详情](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/users_me.get.html)、[获取机器人频道列表](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/users_me_guilds.get.html)。
+
+```go
+info, err := client.GetBotInfo(ctx)     // GET /users/@me
+guilds, err := client.GetJoinedGuilds(ctx, "", "", 20) // GET /users/@me/guilds
+```
+
+`BotInfo` 字段：`ID`、`Username`、`Avatar`、`Bot`，以及 `UnionOpenID` / `UnionUserAccount`（**需特殊申请并配置后才会返回**）与 `ShareURL` / `WelcomeMsg`。
+
+> `ShareURL` 与 `WelcomeMsg` 只出现在官方**响应示例**里、未列入字段表，因此可能不返回；SDK 按可选字段处理。
+
+`GetJoinedGuilds(ctx, after, before, limit)` 的游标与分页规则按文档：
+
+- `before` 设置时先反序再分页；`before` 与 `after` 同时设置时 **`after` 无效**（SDK 两者都发，语义由平台决定）；
+- `limit` 默认 100、**最大 100**，SDK 对超过 100 的值直接截断；
+- 传空字符串即不发送该参数。
+
+`GuildInfo` 字段：`ID`、`Name`、`Icon`、`OwnerID`、`Owner`、`JoinedAt`、`MemberCount`、`MaxMembers`、`Description`。
+
+> 该接口的响应形状在官方文档里**自相矛盾**：字段表写 `{"guilds":[...]}`，而响应示例是裸数组 `[...]`。SDK **两种都能解析**，并已用两条测试分别覆盖。
 
 ## 开发
 
