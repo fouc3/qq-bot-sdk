@@ -44,6 +44,7 @@ QQ 机器人（QQ Bot）开放平台 SDK，Go 实现。参考官方文档：[QQ 
 | `GetBotInfo` | 获取机器人自身详情 `GET /users/@me` |
 | `GetJoinedGuilds` | 获取机器人已加入的频道列表（分页） |
 | `GenerateShareLink` | 生成机器人分享链接 `POST /v2/generate_url_link` |
+| `RespondInteraction` | 回应互动事件 `PUT /interactions/{interaction_id}` |
 | `GetMenu` / `SetMenu` | 自定义菜单（命令列表）查询与整体覆盖 `GET/PUT /v2/menu` |
 | `ListPanels` / `CreatePanel` / `GetPanel` | 指令面板列表、创建、详情 |
 | `UpdatePanel` / `DeletePanel` / `UpdatePanelTargets` | 指令面板修改、删除、关联对象增删 |
@@ -477,7 +478,48 @@ if _, err := client.SendC2CMessage(ctx, openID, &qqbotsdk.Message{
 >
 > 按钮必填字段（`render_data.label`、`visited_label`、`action.permission`、`action.data`、`action.unsupport_tips`）同样会被本地拦下 —— 字段表标注为必填，缺了只会渲染成空白。
 
-回调按钮（`ActionTypeCallback`）被点击后触发 `INTERACTION_CREATE`，**必须调 `PUT /interactions/{interaction_id}` 回应**，否则客户端一直 loading 到超时。该回应接口**目前尚未实现**（见下方「未实现」）。
+### 回应互动（按钮回调）
+
+按钮被点击后平台推送 `INTERACTION_CREATE` 事件，**必须调 `RespondInteraction` 回应**，否则用户客户端一直 loading 到超时。
+
+**关键：回应不是在这条通道上回的。** 事件走 WebSocket 或 Webhook，但回应是一次**独立的 HTTPS 调用** `PUT /interactions/{interaction_id}`。Webhook 的 op12 ACK 只是"我收到你推送了"，**不携带互动结果**，回了 ACK 之后仍然必须调这个接口。
+
+```go
+client.RegisterFunc(qqbotsdk.EventInteractionCreate, func(ctx context.Context, event *qqbotsdk.Event) error {
+	value, err := event.Decode()
+	if err != nil {
+		return err
+	}
+	data := value.(*qqbotsdk.InteractionCreateData)
+
+	// 只有消息按钮(11)和快捷菜单(12)需要回应，其他类型无需回应
+	if !data.NeedsResponse() {
+		return nil
+	}
+
+	// 业务处理……
+	code := qqbotsdk.InteractionCodeSuccess // 0
+	if err := doSomething(ctx, data); err != nil {
+		code = qqbotsdk.InteractionCodeFailed // 1
+	}
+	return client.RespondInteraction(ctx, data.ID, code) // data.ID 来自事件的 d.id
+})
+```
+
+| code | 含义 |
+| --- | --- |
+| 0 `InteractionCodeSuccess` | 成功（零值，也是文档默认值） |
+| 1 `InteractionCodeFailed` | 操作失败 |
+| 2 `InteractionCodeTooFrequent` | 操作频繁 |
+| 3 `InteractionCodeDuplicate` | 重复操作 |
+| 4 `InteractionCodeNoPermission` | 没有权限 |
+| 5 `InteractionCodeAdminOnly` | 仅管理员操作 |
+
+几条必须知道的规则：
+
+- **同一个 `interaction_id` 只能回应一次**，超时后失效。因为这条规则，SDK **不会**自动回应 —— 回应码承载的是你的业务语义（成功／无权限／频繁），自动回应会把它冲掉。
+- `interaction_id` 取自事件的 **`d.id`**。文档特别提醒**不带 `INTERACTION_CREATE:` 前缀**；SDK 会容忍你误带前缀（自动剥掉）并做转义，但正确写法就是 `data.ID`。
+- 本地只校验 `interaction_id` 非空、`code` 在 0–5 之间。**平台侧条件靠平台兜底**：重复回应、窗口过期、token 与 appid 不匹配这些只有平台知道，会以 `630001–630008` 的 `OpenAPIError` 返回（如 `ErrInteractionAppIDMismatch` 表示 AppID 与 interaction_id 不匹配）。
 
 ### 主动消息与被动消息
 

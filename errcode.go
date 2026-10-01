@@ -26,6 +26,9 @@ func (c OpenAPIErrorCode) String() string {
 	if name, ok := menuPanelErrorNames[c]; ok {
 		return name
 	}
+	if name, ok := interactionErrorNames[c]; ok {
+		return name
+	}
 	return ""
 }
 

@@ -19,7 +19,10 @@ import (
 // Each caller gets a fresh user message, so every test starts with its own
 // passive reply budget: the documentation allows four replies per single chat
 // message, and a shared trigger would exhaust it.
-func c2cHarness(t *testing.T, cfg productionConfig) (*qqbotsdk.Client, *qqbotsdk.C2CMessageCreateData) {
+//
+// extra adds intents beyond the single chat events, for a test that also wants
+// a button callback or another category on the same connection.
+func c2cHarness(t *testing.T, cfg productionConfig, extra ...qqbotsdk.Intent) (*qqbotsdk.Client, *qqbotsdk.C2CMessageCreateData) {
 	t.Helper()
 
 	client := productionClient(cfg)
@@ -30,6 +33,8 @@ func c2cHarness(t *testing.T, cfg productionConfig) (*qqbotsdk.Client, *qqbotsdk
 		cancel()
 		t.Fatalf("GetGateway: %v", err)
 	}
+
+	intents := qqbotsdk.IntentGroupAndC2CEvent | qqbotsdk.IntentsFor(extra...)
 
 	ready := make(chan struct{}, 1)
 	messages := make(chan *qqbotsdk.C2CMessageCreateData, 8)
@@ -54,7 +59,7 @@ func c2cHarness(t *testing.T, cfg productionConfig) (*qqbotsdk.Client, *qqbotsdk
 	})
 
 	client.UseTransport(qqbotsdk.NewWebSocketTransport(gatewayURL,
-		qqbotsdk.WithIntents(qqbotsdk.IntentGroupAndC2CEvent)))
+		qqbotsdk.WithIntents(intents)))
 	if err := client.Start(ctx); err != nil {
 		cancel()
 		t.Fatalf("Start: %v", err)
