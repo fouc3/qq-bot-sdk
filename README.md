@@ -442,6 +442,43 @@ if _, err := client.SendGroupMessage(ctx, groupOpenID, &qqbotsdk.Message{
 }
 ```
 
+### 消息按钮（内嵌键盘）
+
+官方文档第一句就是关键：**「在 markdown 消息的基础上，支持消息最底部挂载按钮」**。所以键盘必须挂在 **markdown 消息**上：
+
+```go
+if _, err := client.SendC2CMessage(ctx, openID, &qqbotsdk.Message{
+	MsgType:  qqbotsdk.MsgTypeMarkdown,           // 必须
+	Markdown: &qqbotsdk.MessageMarkdown{Content: "**签到**\n请在下方选择："},
+	Keyboard: &qqbotsdk.Keyboard{Content: &qqbotsdk.KeyboardContent{
+		Rows: []qqbotsdk.Row{{Buttons: []qqbotsdk.Button{{
+			ID: "btn_1",
+			RenderData: &qqbotsdk.RenderData{
+				Label:        "签到",     // 必填
+				VisitedLabel: "已签到",   // 必填
+				Style:        qqbotsdk.KeyboardStyleBlue,
+			},
+			Action: &qqbotsdk.Action{
+				Type:          qqbotsdk.ActionTypeCallback,
+				Data:          "signin",
+				Permission:    &qqbotsdk.Permission{Type: qqbotsdk.PermissionTypeEveryone},
+				UnsupportTips: "请升级 QQ 客户端", // 必填
+			},
+		}}}},
+	}},
+	MsgID:  data.ID, // 被动回复
+	MsgSeq: 2,
+}); err != nil {
+	log.Fatal(err)
+}
+```
+
+> **这是本 SDK 唯一一处"防静默失败"的校验**：把键盘挂在**纯文本**消息上时，平台**接受请求并直接丢掉按钮，不返回任何错误**（生产实测：消息到达后就是纯文本，点也没有按钮）。因此 `Message.Validate()` 会拒绝这种组合，`SendC2CMessage` / `SendGroupMessage` 都会先校验再发请求。
+>
+> 按钮必填字段（`render_data.label`、`visited_label`、`action.permission`、`action.data`、`action.unsupport_tips`）同样会被本地拦下 —— 字段表标注为必填，缺了只会渲染成空白。
+
+回调按钮（`ActionTypeCallback`）被点击后触发 `INTERACTION_CREATE`，**必须调 `PUT /interactions/{interaction_id}` 回应**，否则客户端一直 loading 到超时。该回应接口**目前尚未实现**（见下方「未实现」）。
+
 ### 主动消息与被动消息
 
 填了 `msg_id` 或 `event_id` 即被动回复，不填即主动消息。时效与次数（官方）：

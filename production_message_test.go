@@ -115,13 +115,21 @@ func TestProductionC2CMarkdownAndKeyboard(t *testing.T) {
 	}
 	t.Logf("markdown accepted: id=%s timestamp=%s", response.ID, response.Timestamp)
 
+	// A keyboard attaches to a markdown message: the documentation opens with
+	// "在 markdown 消息的基础上，支持消息最底部挂载按钮". Sending it with a plain
+	// text message is accepted but the buttons are dropped silently, so the
+	// message must be markdown for the keyboard to render at all.
+	keyboardMarker := fmt.Sprintf("BTN-%d", time.Now().UnixNano())
 	keyboard := &qqbotsdk.Message{
-		Content: "按钮生产测试",
+		MsgType: qqbotsdk.MsgTypeMarkdown,
+		Markdown: &qqbotsdk.MessageMarkdown{
+			Content: "**" + keyboardMarker + "**\n请在下方选择：",
+		},
 		Keyboard: &qqbotsdk.Keyboard{Content: &qqbotsdk.KeyboardContent{
 			Rows: []qqbotsdk.Row{{Buttons: []qqbotsdk.Button{{
 				ID: "btn-1",
 				RenderData: &qqbotsdk.RenderData{
-					Label:        "点我",
+					Label:        "回调按钮",
 					VisitedLabel: "已点击",
 					Style:        qqbotsdk.KeyboardStyleBlue,
 				},
@@ -129,6 +137,8 @@ func TestProductionC2CMarkdownAndKeyboard(t *testing.T) {
 					Type:       qqbotsdk.ActionTypeCallback,
 					Data:       "ping",
 					Permission: &qqbotsdk.Permission{Type: qqbotsdk.PermissionTypeEveryone},
+					// The field table marks this required.
+					UnsupportTips: "请升级 QQ 客户端",
 				},
 			}}}},
 		}},

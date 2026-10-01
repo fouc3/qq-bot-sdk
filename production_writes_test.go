@@ -45,7 +45,7 @@ func TestProductionPanelLifecycle(t *testing.T) {
 	defer cancel()
 
 	remark := fmt.Sprintf("生产测试面板-%d", time.Now().UnixNano())
-	panelID, err := client.CreatePanel(ctx, &qqbotsdk.PanelCreateRequest{
+	panelID := createPanel(t, client, ctx, &qqbotsdk.PanelCreateRequest{
 		Scope:      qqbotsdk.PanelScopeC2C,
 		TargetType: qqbotsdk.PanelTargetAll,
 		Panel: &qqbotsdk.Panel{
@@ -56,9 +56,6 @@ func TestProductionPanelLifecycle(t *testing.T) {
 			Remark: remark,
 		},
 	})
-	if err != nil {
-		t.Fatalf("CreatePanel: %v", err)
-	}
 	t.Logf("created panel %s", panelID)
 	if panelID == "" {
 		t.Fatal("the platform returned no panel id")
@@ -67,18 +64,14 @@ func TestProductionPanelLifecycle(t *testing.T) {
 	// Deleting is the whole point of the lifecycle, so it must run even when
 	// an assertion below fails.
 	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cleanupCancel()
 		// The body deletes the panel itself, so a missing panel here means the
 		// test got that far and is not a cleanup failure.
-		err := client.DeletePanel(cleanupCtx, panelID)
-		switch {
-		case err == nil:
-			t.Logf("cleaned up panel %s", panelID)
-		case qqbotsdk.IsOpenAPIError(err, qqbotsdk.ErrPanelNotFound):
-			t.Logf("panel %s was already deleted", panelID)
-		default:
+		if err := deletePanel(t, client, cleanupCtx, panelID); err != nil {
 			t.Errorf("cleaning up panel %s: %v", panelID, err)
+		} else {
+			t.Logf("cleaned up panel %s", panelID)
 		}
 	})
 
@@ -138,7 +131,7 @@ func TestProductionPanelLifecycle(t *testing.T) {
 		t.Logf("panel found in the c2c list among %d records", len(page.Records))
 	}
 
-	if err := client.DeletePanel(ctx, panelID); err != nil {
+	if err := deletePanel(t, client, ctx, panelID); err != nil {
 		t.Fatalf("DeletePanel: %v", err)
 	}
 	t.Log("deleted the panel")
@@ -167,22 +160,18 @@ func TestProductionPanelSpecificTargets(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 
-	panelID, err := client.CreatePanel(ctx, &qqbotsdk.PanelCreateRequest{
+	panelID := createPanel(t, client, ctx, &qqbotsdk.PanelCreateRequest{
 		Scope:       qqbotsdk.PanelScopeC2C,
 		TargetType:  qqbotsdk.PanelTargetSpecific,
 		UserOpenIDs: []string{userOpenID},
 		Panel:       &qqbotsdk.Panel{Items: []qqbotsdk.PanelItem{{Type: qqbotsdk.PanelItemCommand, Name: "专属指令"}}},
 	})
-	if err != nil {
-		t.Fatalf("CreatePanel specific: %v", err)
-	}
 	t.Logf("created a specific panel %s for %s", panelID, userOpenID)
 
 	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cleanupCancel()
-		err := client.DeletePanel(cleanupCtx, panelID)
-		if err != nil && !qqbotsdk.IsOpenAPIError(err, qqbotsdk.ErrPanelNotFound) {
+		if err := deletePanel(t, client, cleanupCtx, panelID); err != nil {
 			t.Errorf("cleaning up panel %s: %v", panelID, err)
 		}
 	})
@@ -296,4 +285,126 @@ func TestProductionMenuLifecycle(t *testing.T) {
 		t.Errorf("item type = %q", item.Type)
 	}
 	t.Logf("the menu now holds %q", item.Name)
+}
+
+// TestProductionPanelScopes creates and deletes a global panel in each of the
+// four scopes, which is the only way to exercise group, channel and dm: the
+// specific target type is refused outside c2c and group, and a group id is only
+// available from an event, but a global panel needs neither.
+func TestProductionPanelScopes(t *testing.T) {
+	cfg := loadProductionConfig(t)
+	client := productionClient(cfg)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
+	defer cancel()
+
+	for _, scope := range []string{
+		qqbotsdk.PanelScopeC2C,
+		qqbotsdk.PanelScopeGroup,
+		qqbotsdk.PanelScopeChannel,
+		qqbotsdk.PanelScopeDM,
+	} {
+		t.Run(scope, func(t *testing.T) {
+			remark := fmt.Sprintf("生产测试-%s-%d", scope, time.Now().UnixNano())
+			panelID := createPanel(t, client, ctx, &qqbotsdk.PanelCreateRequest{
+				Scope:      scope,
+				TargetType: qqbotsdk.PanelTargetAll,
+				Panel: &qqbotsdk.Panel{
+					Items:  []qqbotsdk.PanelItem{{Type: qqbotsdk.PanelItemCommand, Name: "指令"}},
+					Remark: remark,
+				},
+			})
+			t.Cleanup(func() {
+				cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 90*time.Second)
+				defer cleanupCancel()
+				if err := deletePanel(t, client, cleanupCtx, panelID); err != nil {
+					t.Errorf("cleaning up panel %s: %v", panelID, err)
+				}
+			})
+
+			detail, err := client.GetPanel(ctx, panelID)
+			if err != nil {
+				t.Fatalf("GetPanel(%s): %v", scope, err)
+			}
+			if detail.Scope != scope {
+				t.Errorf("Scope = %q, want %q", detail.Scope, scope)
+			}
+			if detail.Panel == nil || detail.Panel.Remark != remark {
+				t.Errorf("Panel = %+v, want the remark that was set", detail.Panel)
+			}
+
+			// The panel must be listed under its own scope.
+			page, err := client.ListPanels(ctx, scope, "", 50)
+			if err != nil {
+				t.Fatalf("ListPanels(%s): %v", scope, err)
+			}
+			found := false
+			for _, record := range page.Records {
+				if record.PanelID == panelID {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("panel %s is missing from the %s list", panelID, scope)
+			}
+
+			if err := deletePanel(t, client, ctx, panelID); err != nil {
+				t.Fatalf("DeletePanel(%s): %v", scope, err)
+			}
+			t.Logf("%s: created %s, listed and deleted it", scope, panelID)
+		})
+	}
+}
+
+// rateLimitCode is the platform's "接口调用超过频率限制" refusal. It is not part
+// of a documented error table, so it is named here.
+const rateLimitCode qqbotsdk.OpenAPIErrorCode = 40023001
+
+// rateLimitedPause is how long to wait before retrying a rate limited write.
+const rateLimitedPause = 12 * time.Second
+
+// createPanel creates a panel, retrying a rate limited refusal.
+//
+// The panel mutation endpoints share a tight limit. The documentation states 10
+// per minute, but running every test in one process, which is a handful of
+// creates and deletes, is answered with 40023001 partway through, so a retry is
+// what keeps the suite honest rather than flaky.
+func createPanel(t *testing.T, client *qqbotsdk.Client, ctx context.Context, req *qqbotsdk.PanelCreateRequest) string {
+	t.Helper()
+	var (
+		panelID string
+		err     error
+	)
+	for attempt := 1; attempt <= 4; attempt++ {
+		panelID, err = client.CreatePanel(ctx, req)
+		if err == nil || !qqbotsdk.IsOpenAPIError(err, rateLimitCode) {
+			break
+		}
+		t.Logf("creating a panel was rate limited, retrying in %s (attempt %d)", rateLimitedPause, attempt)
+		time.Sleep(rateLimitedPause)
+	}
+	if err != nil {
+		t.Fatalf("CreatePanel: %v", err)
+	}
+	return panelID
+}
+
+// deletePanel removes a panel, retrying a rate limited refusal and reporting a
+// panel that is already gone as success, so a cleanup can run twice.
+func deletePanel(t *testing.T, client *qqbotsdk.Client, ctx context.Context, panelID string) error {
+	t.Helper()
+	var err error
+	for attempt := 1; attempt <= 4; attempt++ {
+		err = client.DeletePanel(ctx, panelID)
+		if err == nil || !qqbotsdk.IsOpenAPIError(err, rateLimitCode) {
+			break
+		}
+		t.Logf("deleting panel %s was rate limited, retrying in %s (attempt %d)",
+			panelID, rateLimitedPause, attempt)
+		time.Sleep(rateLimitedPause)
+	}
+	if err != nil && qqbotsdk.IsOpenAPIError(err, qqbotsdk.ErrPanelNotFound) {
+		return nil
+	}
+	return err
 }

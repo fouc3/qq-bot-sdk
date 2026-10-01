@@ -122,6 +122,12 @@ type MessageMarkdown struct {
 // Keyboard is a message button keyboard.
 //
 // Either ID selects a platform template, or Content defines a custom layout.
+//
+// A keyboard hangs off a markdown message: the documentation opens with
+// "在 markdown 消息的基础上，支持消息最底部挂载按钮". Sending one with a plain
+// text message is accepted by the platform but the buttons are dropped with no
+// error at all, which is why Message.Validate refuses that combination before
+// the request is made.
 type Keyboard struct {
 	ID      string           `json:"id,omitempty"`
 	Content *KeyboardContent `json:"content,omitempty"`
@@ -415,6 +421,74 @@ type DMS struct {
 	CreateTime string `json:"create_time"`
 }
 
+// Validate checks a message against the documented rules whose breach the
+// platform does not report.
+//
+// Only the silent failures are checked. A keyboard sent with a plain text
+// message is accepted and its buttons are dropped, and a button missing a
+// required field renders as nothing, so both are refused here instead of
+// costing a round trip that only looks like it worked.
+func (m *Message) Validate() error {
+	if m == nil {
+		return errors.New("qqbotsdk: message is nil")
+	}
+	if m.Keyboard == nil {
+		return nil
+	}
+	if m.Markdown == nil || m.Markdown.Content == "" {
+		return errors.New("qqbotsdk: a keyboard attaches to a markdown message, so set " +
+			"MsgType to MsgTypeMarkdown and fill Markdown.Content; the platform " +
+			"otherwise drops the buttons without reporting anything")
+	}
+	return m.Keyboard.validate()
+}
+
+// validate checks a keyboard's buttons, skipping a template keyboard, which
+// carries an id instead of a layout.
+func (k *Keyboard) validate() error {
+	if k == nil || k.Content == nil {
+		return nil
+	}
+	for i, row := range k.Content.Rows {
+		for j := range row.Buttons {
+			if err := row.Buttons[j].validate(); err != nil {
+				return fmt.Errorf("qqbotsdk: keyboard row %d button %d: %w", i, j, err)
+			}
+		}
+	}
+	return nil
+}
+
+// validate checks the fields the documentation marks required.
+//
+// A field whose zero value is meaningful, such as render_data.style or
+// action.type, cannot be told here from one that was never set, so those are
+// left to the platform.
+func (b *Button) validate() error {
+	if b.RenderData == nil {
+		return errors.New("render_data is required")
+	}
+	if b.RenderData.Label == "" {
+		return errors.New("render_data.label is required")
+	}
+	if b.RenderData.VisitedLabel == "" {
+		return errors.New("render_data.visited_label is required")
+	}
+	if b.Action == nil {
+		return errors.New("action is required")
+	}
+	if b.Action.Permission == nil {
+		return errors.New("action.permission is required")
+	}
+	if b.Action.Data == "" {
+		return errors.New("action.data is required")
+	}
+	if b.Action.UnsupportTips == "" {
+		return errors.New("action.unsupport_tips is required")
+	}
+	return nil
+}
+
 // SendC2CMessage sends a message to one user.
 //
 // The documented passive reply window is 60 minutes and at most 4 replies per
@@ -422,6 +496,9 @@ type DMS struct {
 func (c *Client) SendC2CMessage(ctx context.Context, userOpenID string, msg *Message) (*MessageResponse, error) {
 	if userOpenID == "" {
 		return nil, errors.New("qqbotsdk: SendC2CMessage needs a user openid")
+	}
+	if err := msg.Validate(); err != nil {
+		return nil, err
 	}
 	var out MessageResponse
 	path := "/v2/users/" + url.PathEscape(userOpenID) + "/messages"
@@ -438,6 +515,9 @@ func (c *Client) SendC2CMessage(ctx context.Context, userOpenID string, msg *Mes
 func (c *Client) SendGroupMessage(ctx context.Context, groupOpenID string, msg *Message) (*MessageResponse, error) {
 	if groupOpenID == "" {
 		return nil, errors.New("qqbotsdk: SendGroupMessage needs a group openid")
+	}
+	if err := msg.Validate(); err != nil {
+		return nil, err
 	}
 	var out MessageResponse
 	path := "/v2/groups/" + url.PathEscape(groupOpenID) + "/messages"

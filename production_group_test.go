@@ -152,6 +152,23 @@ func TestProductionGroupRoundTrip(t *testing.T) {
 	oneBotVerifyDelivered(t, cfg, "get_group_msg_history",
 		map[string]any{"group_id": json.Number(groupID), "count": 20},
 		replyText, "the group")
+
+	// A second passive reply to the same message exercises markdown in a
+	// group; the documentation allows five replies to one group message.
+	markdownText := "GROUP-MD " + probe
+	if _, err := client.SendGroupMessage(ctx, received.data.GroupOpenID, &qqbotsdk.Message{
+		MsgType:  qqbotsdk.MsgTypeMarkdown,
+		Markdown: &qqbotsdk.MessageMarkdown{Content: "**" + markdownText + "**"},
+		MsgID:    received.data.ID,
+		MsgSeq:   2,
+	}); err != nil {
+		t.Fatalf("group markdown reply: %v", err)
+	}
+	t.Log("group markdown reply accepted")
+
+	oneBotVerifyDelivered(t, cfg, "get_group_msg_history",
+		map[string]any{"group_id": json.Number(groupID), "count": 20},
+		markdownText, "the group")
 }
 
 // oneBotMention sends a group message that mentions the bot, which is what

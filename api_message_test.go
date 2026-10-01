@@ -159,13 +159,18 @@ func TestSendC2CMessageKeyboardLayout(t *testing.T) {
 		Markdown: &MessageMarkdown{Content: "x"},
 		Keyboard: &Keyboard{Content: &KeyboardContent{Rows: []Row{{
 			Buttons: []Button{{
-				ID:         "btn_signin",
-				RenderData: &RenderData{Label: "签到", Style: KeyboardStyleBlue},
+				ID: "btn_signin",
+				RenderData: &RenderData{
+					Label:        "签到",
+					VisitedLabel: "已签到",
+					Style:        KeyboardStyleBlue,
+				},
 				Action: &Action{
-					Type:       ActionTypeCommand,
-					Data:       "/签到",
-					Enter:      true,
-					Permission: &Permission{Type: PermissionTypeEveryone},
+					Type:          ActionTypeCommand,
+					Data:          "/签到",
+					Enter:         true,
+					Permission:    &Permission{Type: PermissionTypeEveryone},
+					UnsupportTips: "请升级 QQ 客户端",
 				},
 			}},
 		}}}},
@@ -772,5 +777,144 @@ func TestStreamMessageResponseStreamID(t *testing.T) {
 	}
 	if got := (*StreamMessageResponse)(nil).StreamID(); got != "" {
 		t.Errorf("a nil response must give an empty id, got %q", got)
+	}
+}
+
+// validButton is a button with every field the documentation marks required.
+func validButton() Button {
+	return Button{
+		ID: "btn_signin",
+		RenderData: &RenderData{
+			Label:        "签到",
+			VisitedLabel: "已签到",
+			Style:        KeyboardStyleBlue,
+		},
+		Action: &Action{
+			Type:          ActionTypeCommand,
+			Data:          "/签到",
+			Permission:    &Permission{Type: PermissionTypeEveryone},
+			UnsupportTips: "请升级 QQ 客户端",
+		},
+	}
+}
+
+// TestMessageValidateRefusesKeyboardOnPlainText covers the failure production
+// exposed: the platform accepts a keyboard on a text message and silently drops
+// the buttons, so the SDK must refuse it.
+func TestMessageValidateRefusesKeyboardOnPlainText(t *testing.T) {
+	plain := &Message{
+		Content:  "按钮生产测试",
+		Keyboard: &Keyboard{Content: &KeyboardContent{Rows: []Row{{Buttons: []Button{validButton()}}}}},
+	}
+	err := plain.Validate()
+	if err == nil {
+		t.Fatal("a keyboard on a plain text message must be refused")
+	}
+	if !strings.Contains(err.Error(), "markdown") {
+		t.Errorf("err = %v, want it to name the markdown requirement", err)
+	}
+}
+
+// TestMessageValidateAcceptsKeyboardOnMarkdown checks the combination the
+// documentation prescribes.
+func TestMessageValidateAcceptsKeyboardOnMarkdown(t *testing.T) {
+	message := &Message{
+		MsgType:  MsgTypeMarkdown,
+		Markdown: &MessageMarkdown{Content: "**签到**"},
+		Keyboard: &Keyboard{Content: &KeyboardContent{Rows: []Row{{Buttons: []Button{validButton()}}}}},
+	}
+	if err := message.Validate(); err != nil {
+		t.Errorf("Validate = %v, want a markdown message with a keyboard to pass", err)
+	}
+
+	// A template keyboard carries an id and no layout, so it needs no content.
+	if err := (&Message{Content: "x", Keyboard: &Keyboard{ID: "123"}}).Validate(); err == nil {
+		// The markdown rule still applies to a template keyboard.
+		t.Error("a template keyboard on a plain text message must still be refused")
+	}
+	if err := (&Message{
+		MsgType: MsgTypeMarkdown, Markdown: &MessageMarkdown{Content: "x"},
+		Keyboard: &Keyboard{ID: "123"},
+	}).Validate(); err != nil {
+		t.Errorf("a template keyboard on markdown must be accepted, got %v", err)
+	}
+}
+
+// TestMessageValidateChecksRequiredButtonFields covers the fields the field
+// table marks required, which otherwise render as nothing.
+func TestMessageValidateChecksRequiredButtonFields(t *testing.T) {
+	withKeyboard := func(button Button) *Message {
+		return &Message{
+			MsgType:  MsgTypeMarkdown,
+			Markdown: &MessageMarkdown{Content: "x"},
+			Keyboard: &Keyboard{Content: &KeyboardContent{Rows: []Row{{Buttons: []Button{button}}}}},
+		}
+	}
+
+	noRenderData := validButton()
+	noRenderData.RenderData = nil
+
+	noLabel := validButton()
+	noLabel.RenderData.Label = ""
+
+	noVisited := validButton()
+	noVisited.RenderData.VisitedLabel = ""
+
+	noAction := validButton()
+	noAction.Action = nil
+
+	noPermission := validButton()
+	noPermission.Action.Permission = nil
+
+	noData := validButton()
+	noData.Action.Data = ""
+
+	noTips := validButton()
+	noTips.Action.UnsupportTips = ""
+
+	cases := map[string]*Message{
+		"nil message":       nil,
+		"no render_data":    withKeyboard(noRenderData),
+		"no label":          withKeyboard(noLabel),
+		"no visited_label":  withKeyboard(noVisited),
+		"no action":         withKeyboard(noAction),
+		"no permission":     withKeyboard(noPermission),
+		"no action data":    withKeyboard(noData),
+		"no unsupport_tips": withKeyboard(noTips),
+	}
+	for name, message := range cases {
+		t.Run(name, func(t *testing.T) {
+			if err := message.Validate(); err == nil {
+				t.Error("expected a validation error")
+			}
+		})
+	}
+
+	// A message without a keyboard has nothing to check.
+	if err := (&Message{Content: "纯文本"}).Validate(); err != nil {
+		t.Errorf("a plain text message must pass, got %v", err)
+	}
+}
+
+// TestSendRefusesKeyboardOnPlainTextWithoutARequest checks that the guard runs
+// before any call is made.
+func TestSendRefusesKeyboardOnPlainTextWithoutARequest(t *testing.T) {
+	client, captured := newMessageServer(t, http.StatusOK, `{"id":"m1"}`)
+
+	keyboard := &Keyboard{Content: &KeyboardContent{Rows: []Row{{Buttons: []Button{validButton()}}}}}
+
+	if _, err := client.SendC2CMessage(t.Context(), "USER1", &Message{
+		Content: "纯文本", Keyboard: keyboard,
+	}); err == nil {
+		t.Error("SendC2CMessage must refuse a keyboard on a plain text message")
+	}
+	if _, err := client.SendGroupMessage(t.Context(), "GROUP1", &Message{
+		Content: "纯文本", Keyboard: keyboard,
+	}); err == nil {
+		t.Error("SendGroupMessage must refuse a keyboard on a plain text message")
+	}
+
+	if len(*captured) != 0 {
+		t.Errorf("a refused message still sent %d requests", len(*captured))
 	}
 }
