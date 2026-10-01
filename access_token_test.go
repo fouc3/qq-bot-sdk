@@ -22,12 +22,13 @@ func newTestClient(t *testing.T, handler http.HandlerFunc) (*Client, *httptest.S
 }
 
 func TestGetAppAccessTokenDecodesStringExpiry(t *testing.T) {
-	var gotPath, gotContentType string
+	var gotPath, gotContentType, authHeader string
 	var gotBody map[string]string
 
 	client, _ := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotContentType = r.Header.Get("Content-Type")
+		authHeader = r.Header.Get("Authorization")
 		data, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(data, &gotBody)
 		_, _ = w.Write([]byte(`{"access_token":"TOKEN-A","expires_in":"7200"}`))
@@ -41,8 +42,11 @@ func TestGetAppAccessTokenDecodesStringExpiry(t *testing.T) {
 	if gotPath != "/app/getAppAccessToken" {
 		t.Errorf("path = %q, want %q", gotPath, "/app/getAppAccessToken")
 	}
-	if gotContentType != "application/json" {
-		t.Errorf("Content-Type = %q, want application/json", gotContentType)
+	if gotContentType != DefaultContentType {
+		t.Errorf("Content-Type = %q, want %q", gotContentType, DefaultContentType)
+	}
+	if gotAuth := authHeader; gotAuth != "" {
+		t.Errorf("the access token endpoint must not send Authorization, got %q", gotAuth)
 	}
 	if gotBody["appId"] != "123456" {
 		t.Errorf("appId = %q, want 123456", gotBody["appId"])

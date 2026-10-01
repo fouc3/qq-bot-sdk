@@ -32,9 +32,15 @@ func (t *AccessToken) Expired() bool {
 	return t.ExpiresAt.Before(time.Now())
 }
 
-// ValidN reports whether the token is still usable for n more seconds.
+// ValidN reports whether the token is still usable for another d.
 func (t *AccessToken) ValidN(d time.Duration) bool {
 	return time.Now().Add(d).Before(t.ExpiresAt)
+}
+
+// AuthorizationHeader returns the value for the Authorization request header
+// that authenticated OpenAPI calls must carry, e.g. "QQBot ACCESS_TOKEN".
+func (t *AccessToken) AuthorizationHeader() string {
+	return DefaultAuthorizationScheme + " " + t.Value
 }
 
 // accessTokenResponse mirrors the JSON body of the access token endpoint.
@@ -56,8 +62,8 @@ func (r *accessTokenResponse) errCode() error {
 	return &APIError{Code: r.Code, Message: r.Message}
 }
 
-// flexibleSeconds decodes a JSON value that may be either a number or a
-// numeric string, and interprets it as seconds.
+// flexibleSeconds decodes a JSON value that may be either a number or a numeric
+// string, and interprets it as seconds.
 type flexibleSeconds time.Duration
 
 func (s *flexibleSeconds) UnmarshalJSON(data []byte) error {
@@ -91,7 +97,10 @@ func (c *Client) GetAppAccessToken(ctx context.Context) (*AccessToken, error) {
 	}
 
 	var resp accessTokenResponse
-	if err := c.postJSON(ctx, accessTokenPath, payload, &resp); err != nil {
+	// The access token endpoint reports failures in the body while returning
+	// HTTP 200, so it is handled as a credential call rather than as a regular
+	// OpenAPI call.
+	if err := c.doJSON(ctx, "POST", accessTokenPath, payload, &resp, credentialCall); err != nil {
 		return nil, err
 	}
 	if err := resp.errCode(); err != nil {
@@ -101,23 +110,28 @@ func (c *Client) GetAppAccessToken(ctx context.Context) (*AccessToken, error) {
 		return nil, fmt.Errorf("qqbotsdk: %s: empty access_token in response", accessTokenPath)
 	}
 
-	token := &AccessToken{
+	return &AccessToken{
 		Value:     resp.AccessToken,
 		ExpiresIn: time.Duration(resp.ExpiresIn),
 		ExpiresAt: time.Now().Add(time.Duration(resp.ExpiresIn)),
-	}
-	return token, nil
+	}, nil
 }
 
-// AccessToken returns a usable access token, fetching one when the cached
-// token is missing or about to expire.
+// AccessToken returns a usable access token, fetching one when the cached token
+// is missing or about to expire.
 //
 // The token is refreshed refreshMargin before it lapses. Concurrent callers
 // share a single in-flight request.
+//
+// A client configured with WithAccessToken or Config.AccessToken has no
+// credentials to fetch a token with; it returns that fixed token instead.
 func (c *Client) AccessToken(ctx context.Context) (*AccessToken, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.staticToken != "" {
+		return &AccessToken{Value: c.staticToken}, nil
+	}
 	if c.token != nil && c.token.ValidN(refreshMargin) {
 		return c.token, nil
 	}
@@ -143,8 +157,7 @@ type TokenSource interface {
 	Token(ctx context.Context) (*AccessToken, error)
 }
 
-// TokenSource returns a TokenSource backed by this client, satisfying the
-// TokenSource interface without exposing the Client itself.
+// TokenSource returns a TokenSource backed by this client.
 func (c *Client) TokenSource() TokenSource {
 	return &clientTokenSource{client: c}
 }
@@ -155,10 +168,4 @@ type clientTokenSource struct {
 
 func (s *clientTokenSource) Token(ctx context.Context) (*AccessToken, error) {
 	return s.client.AccessToken(ctx)
-}
-
-// AuthorizationHeader returns the value for the Authorization request header
-// that authenticated OpenAPI calls must carry, e.g. "QQBot ACCESS_TOKEN".
-func (t *AccessToken) AuthorizationHeader() string {
-	return "QQBot " + t.Value
 }
