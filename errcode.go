@@ -10,12 +10,17 @@ type OpenAPIErrorCode int
 // part of a documented table.
 //
 // It consults the common table from the API call guide first, then the
-// per-endpoint tables such as the message codes.
+// per-endpoint tables such as the message and share link codes. Note that the
+// platform reuses some numbers across endpoints with different meanings, so a
+// name is only authoritative for the endpoint that returned the code.
 func (c OpenAPIErrorCode) String() string {
 	if name, ok := openAPIErrorNames[c]; ok {
 		return name
 	}
 	if name, ok := messageErrorNames[c]; ok {
+		return name
+	}
+	if name, ok := shareErrorNames[c]; ok {
 		return name
 	}
 	return ""

@@ -42,6 +42,7 @@ QQ 机器人（QQ Bot）开放平台 SDK，Go 实现。参考官方文档：[QQ 
 | `ReactionUsers` | 拉取某条消息某表情的表态用户（分页） |
 | `GetBotInfo` | 获取机器人自身详情 `GET /users/@me` |
 | `GetJoinedGuilds` | 获取机器人已加入的频道列表（分页） |
+| `GenerateShareLink` | 生成机器人分享链接 `POST /v2/generate_url_link` |
 | 消息错误码 | `errcode_message.go`，约 60 个按接口归类的错误码 |
 
 ## 安装
@@ -506,6 +507,18 @@ guilds, err := client.GetJoinedGuilds(ctx, "", "", 20) // GET /users/@me/guilds
 `GuildInfo` 字段：`ID`、`Name`、`Icon`、`OwnerID`、`Owner`、`JoinedAt`、`MemberCount`、`MaxMembers`、`Description`。
 
 > 该接口的响应形状在官方文档里**自相矛盾**：字段表写 `{"guilds":[...]}`，而响应示例是裸数组 `[...]`。SDK **两种都能解析**，并已用两条测试分别覆盖。
+
+### 分享链接
+
+官方文档：[生成分享链接](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_generate_url_link.post.html)。用于邀请用户添加机器人为好友。
+
+```go
+url, err := client.GenerateShareLink(ctx, "custom_data_123") // POST /v2/generate_url_link
+```
+
+`callback_data` 选填，**最长 32 字符**（按字符计，非字节），超长会在本地直接报错而不发请求。返回值即响应体的 `data.url`。
+
+> **错误码冲突**：该页的 10001 是「请求参数异常」、10003 是「查询机器人信息异常」，而公共错误码表里 10001=UnknownAccount、10003=UnknownChannel。**同一数字在不同接口含义不同**，所以 `String()` 仍以公共表为准，处理该接口时请按本接口的语义解读这两个码。本页其余码（10002/10044/11004）已定义为 `ErrRequestHeaderInvalid`、`ErrUinFromHeaderFailed`、`ErrGenerateShareARKFailed`。
 
 ## 开发
 
