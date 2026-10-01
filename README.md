@@ -43,6 +43,10 @@ QQ 机器人（QQ Bot）开放平台 SDK，Go 实现。参考官方文档：[QQ 
 | `GetBotInfo` | 获取机器人自身详情 `GET /users/@me` |
 | `GetJoinedGuilds` | 获取机器人已加入的频道列表（分页） |
 | `GenerateShareLink` | 生成机器人分享链接 `POST /v2/generate_url_link` |
+| `GetMenu` / `SetMenu` | 自定义菜单（命令列表）查询与整体覆盖 `GET/PUT /v2/menu` |
+| `ListPanels` / `CreatePanel` / `GetPanel` | 指令面板列表、创建、详情 |
+| `UpdatePanel` / `DeletePanel` / `UpdatePanelTargets` | 指令面板修改、删除、关联对象增删 |
+| `Menu` / `Panel` 校验 | 本地校验文档规定的类型、数量与 https 链接要求 |
 | 消息错误码 | `errcode_message.go`，约 60 个按接口归类的错误码 |
 
 ## 安装
@@ -519,6 +523,71 @@ url, err := client.GenerateShareLink(ctx, "custom_data_123") // POST /v2/generat
 `callback_data` 选填，**最长 32 字符**（按字符计，非字节），超长会在本地直接报错而不发请求。返回值即响应体的 `data.url`。
 
 > **错误码冲突**：该页的 10001 是「请求参数异常」、10003 是「查询机器人信息异常」，而公共错误码表里 10001=UnknownAccount、10003=UnknownChannel。**同一数字在不同接口含义不同**，所以 `String()` 仍以公共表为准，处理该接口时请按本接口的语义解读这两个码。本页其余码（10002/10044/11004）已定义为 `ErrRequestHeaderInvalid`、`ErrUinFromHeaderFailed`、`ErrGenerateShareARKFailed`。
+
+## 自定义菜单与指令面板
+
+官方文档：[自定义菜单与指令面板](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/menu-panel/)。
+
+### 自定义菜单（命令列表）
+
+展示在**单聊窗口底部**，设置后对所有用户生效，不支持按用户区分。
+
+```go
+// 查询：未设置过时 Menu 为 nil，不是错误
+config, err := client.GetMenu(ctx)
+
+// 修改：整体覆盖，返回新版本号
+version, err := client.SetMenu(ctx, &qqbotsdk.Menu{Items: []qqbotsdk.MenuItem{
+	{Type: qqbotsdk.MenuTypeSendMessage, Name: "帮助", SendMessage: "/help"},
+	{Type: qqbotsdk.MenuTypeLink, Name: "官网", Link: "https://example.com"},
+	{Type: qqbotsdk.MenuTypeMenu, Name: "更多", SubMenuItems: []qqbotsdk.SubMenuItem{
+		{Type: qqbotsdk.SubMenuTypeSendMessage, Name: "设置", SendMessage: "/settings"},
+	}},
+	{Type: qqbotsdk.MenuTypeSwitch, Name: "搜索", Switch: &qqbotsdk.MenuSwitch{SwitchID: "search", Default: true}},
+}})
+```
+
+按钮类型：`switch` 开关、`send_message` 填充输入框、`link` 跳转、`menu` 折叠项。**折叠项内不能再嵌套**，`switch` 只在一级有效。
+
+`switch_id` 的用途：用户切换开关后平台会发一条消息，`ext` 里带上该标识（如 `search=1`），关闭则不带。
+
+### 指令面板
+
+支持 `c2c`（单聊）、`group`（群聊）、`channel`（文字子频道）、`dm`（频道私信）四种场景。**`channel` 与 `dm` 只能全局配置**，仅 `c2c`/`group` 支持按指定对象生效。
+
+```go
+panelID, err := client.CreatePanel(ctx, &qqbotsdk.PanelCreateRequest{
+	Scope:      qqbotsdk.PanelScopeGroup,
+	TargetType: qqbotsdk.PanelTargetSpecific,
+	GroupOpenIDs: []string{"openid_group_001"},
+	Panel: &qqbotsdk.Panel{
+		Items: []qqbotsdk.PanelItem{
+			{Type: qqbotsdk.PanelItemCommand, Name: "群签到", Desc: "每日签到"},
+			{Type: qqbotsdk.PanelItemLink, Name: "更多服务", Link: "https://example.com", OnlyAdmin: true},
+		},
+		Remark: "群面板", // 最多 255 字符，不展示给用户
+	},
+})
+
+page, err := client.ListPanels(ctx, qqbotsdk.PanelScopeGroup, "", 20) // limit 默认 20，上限 50
+err = client.UpdatePanelTargets(ctx, panelID, &qqbotsdk.PanelTargetRequest{
+	Op:           qqbotsdk.PanelTargetOpAdd,
+	GroupOpenIDs: []string{"openid_group_003"},
+})
+```
+
+`ListPanels` 必须传 `scope`；翻页用上页的 `NextCursor`，`IsEnd` 为 true 表示到底。`UpdatePanel` 只改元素与备注、**不动已关联对象**；关联对象用 `UpdatePanelTargets`（全局面板调用它会报 `ErrGlobalPanelNoTarget`）。
+
+### 本地校验
+
+`Menu.Validate()`、`Panel.Validate()`、`PanelCreateRequest.Validate()`、`PanelTargetRequest.Validate()`、`ValidateScope()` 会按文档约束提前报错，错误信息指明是哪一项：
+
+- 菜单项 ≤10、子菜单项 ≤5；面板元素 ≤20；一次关联对象 ≤20；备注 ≤255 字符
+- 类型枚举（按钮/元素/作用范围/操作类型）
+- `link` 类型**必须以 `https://` 开头**
+- `channel`/`dm` 场景传 `specific` 直接拒绝；`specific` 必须提供对应的 openid 列表
+
+这些校验发生在**发请求之前**，因此非法输入不会产生一次注定失败的调用。
 
 ## 开发
 

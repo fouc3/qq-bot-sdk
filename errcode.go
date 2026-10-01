@@ -23,6 +23,9 @@ func (c OpenAPIErrorCode) String() string {
 	if name, ok := shareErrorNames[c]; ok {
 		return name
 	}
+	if name, ok := menuPanelErrorNames[c]; ok {
+		return name
+	}
 	return ""
 }
 
