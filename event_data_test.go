@@ -661,3 +661,37 @@ func TestEveryEventHasAStructure(t *testing.T) {
 		t.Errorf("allEvents has %d entries, want the 46 documented event types", len(allEvents))
 	}
 }
+
+// TestEventDecodeShorthand covers the method a handler uses directly, since it
+// already holds the event.
+func TestEventDecodeShorthand(t *testing.T) {
+	event := &Event{
+		Payload: dispatchPayload(t, EventGroupAtMessageCreate, `{
+			"id":"M1","content":"你好","group_openid":"G1",
+			"author":{"member_openid":"U1"}
+		}`),
+		Transport: TransportNameWebSocket,
+	}
+
+	value, err := event.Decode()
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	data, ok := value.(*GroupMessageCreateData)
+	if !ok {
+		t.Fatalf("value = %T, want *GroupMessageCreateData", value)
+	}
+	if data.Content != "你好" || data.GroupOpenID != "G1" {
+		t.Errorf("data = %+v", data)
+	}
+	if data.Author == nil || data.Author.MemberOpenID != "U1" {
+		t.Errorf("Author = %+v", data.Author)
+	}
+
+	if _, err := (*Event)(nil).Decode(); err == nil {
+		t.Error("a nil event must be reported")
+	}
+	if _, err := (&Event{}).Decode(); err == nil {
+		t.Error("an event without a payload must be reported")
+	}
+}

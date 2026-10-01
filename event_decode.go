@@ -120,3 +120,23 @@ func DecodeEvent(p *Payload) (any, error) {
 	}
 	return target, nil
 }
+
+// Decode resolves an event's body into the structure that matches its type.
+//
+// It is the shorthand for a handler, which already holds the event:
+//
+//	reg := client.Register(qqbotsdk.EventGroupAtMessageCreate,
+//		qqbotsdk.EventHandlerFunc(func(ctx context.Context, event *qqbotsdk.Event) error {
+//			value, err := event.Decode()
+//			if err != nil {
+//				return err
+//			}
+//			data := value.(*qqbotsdk.GroupMessageCreateData)
+//			return reply(ctx, data.Content)
+//		}))
+func (e *Event) Decode() (any, error) {
+	if e == nil || e.Payload == nil {
+		return nil, fmt.Errorf("qqbotsdk: event carries no payload")
+	}
+	return DecodeEvent(e.Payload)
+}
