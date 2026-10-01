@@ -356,3 +356,62 @@ func oneBotHistoryContains(t *testing.T, cfg productionConfig, userID, want stri
 	}
 	return strings.Contains(string(raw), want), true
 }
+
+// TestProductionReadOnlyEndpoints exercises the remaining read-only calls
+// against the live platform, which validates their request paths, query
+// building and response decoding without changing anything.
+func TestProductionReadOnlyEndpoints(t *testing.T) {
+	cfg := loadProductionConfig(t)
+	client := productionClient(cfg)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+	defer cancel()
+
+	botGateway, err := client.GetGatewayBot(ctx)
+	if err != nil {
+		t.Fatalf("GetGatewayBot: %v", err)
+	}
+	t.Logf("gateway/bot: url=%s shards=%d session_limit={total:%d remaining:%d max_concurrency:%d}",
+		botGateway.URL, botGateway.Shards, botGateway.SessionStartLimit.Total,
+		botGateway.SessionStartLimit.Remaining, botGateway.SessionStartLimit.MaxConcurrency)
+	if botGateway.URL == "" {
+		t.Error("gateway/bot returned no url")
+	}
+
+	// The guild list shape is the one the documentation contradicts itself on,
+	// so a live call is the only way to know which form the platform sends.
+	guilds, err := client.GetJoinedGuilds(ctx, "", "", 20)
+	if err != nil {
+		t.Fatalf("GetJoinedGuilds: %v", err)
+	}
+	t.Logf("joined guilds: %d", len(guilds))
+	for i, guild := range guilds {
+		if i >= 3 {
+			t.Logf("  ... and %d more", len(guilds)-i)
+			break
+		}
+		t.Logf("  guild id=%s name=%q members=%d owner=%v",
+			guild.ID, guild.Name, guild.MemberCount, guild.Owner)
+	}
+
+	// A menu that was never set must come back without a menu, not as an error.
+	menu, err := client.GetMenu(ctx)
+	if err != nil {
+		t.Fatalf("GetMenu: %v", err)
+	}
+	if menu.Menu == nil {
+		t.Logf("menu: version=%d, not configured", menu.Version)
+	} else {
+		t.Logf("menu: version=%d, %d items", menu.Version, len(menu.Menu.Items))
+	}
+
+	panelPage, err := client.ListPanels(ctx, qqbotsdk.PanelScopeC2C, "", 10)
+	if err != nil {
+		t.Fatalf("ListPanels: %v", err)
+	}
+	t.Logf("c2c panels: %d records, next_cursor=%q is_end=%v",
+		len(panelPage.Records), panelPage.NextCursor, panelPage.IsEnd)
+	for _, record := range panelPage.Records {
+		t.Logf("  panel id=%s scope=%s target=%s", record.PanelID, record.Scope, record.TargetType)
+	}
+}

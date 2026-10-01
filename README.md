@@ -588,7 +588,8 @@ url, err := client.GenerateShareLink(ctx, "custom_data_123") // POST /v2/generat
 展示在**单聊窗口底部**，设置后对所有用户生效，不支持按用户区分。
 
 ```go
-// 查询：未设置过时 Menu 为 nil，不是错误
+// 查询：未配置时要同时处理两种情况 —— Menu 为 nil，或返回 items 为空的菜单对象
+// （实测生产环境返回的是后者：version 有值、items 为空数组）
 config, err := client.GetMenu(ctx)
 
 // 修改：整体覆盖，返回新版本号
