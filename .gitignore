@@ -1,0 +1,20 @@
+# 编译产物
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# 测试与覆盖率
+*.test
+*.out
+coverage.txt
+
+# Go 工作区
+go.work
+go.work.sum
+
+# 编辑器与系统
+.idea/
+.vscode/
+.DS_Store
