@@ -88,9 +88,12 @@ func normalizeInteractionID(id string) string {
 // the other types without complaining. InteractionCreateData.NeedsResponse
 // reports which is which.
 //
-// An interaction id may be answered once and expires, so a duplicate or a late
-// answer is rejected by the platform as an OpenAPIError carrying one of the
-// 63000x codes.
+// The documentation says an interaction id may be answered only once, and that
+// it expires. Production showed the "only once" half is not enforced by an
+// error: a second answer to the same id was accepted, so presumably only the
+// first one takes effect. Answering an expired id is expected to fail with one
+// of the 63000x codes, which is the platform's business and not something that
+// can be judged here.
 func (c *Client) RespondInteraction(ctx context.Context, interactionID string, code InteractionCode) error {
 	id := normalizeInteractionID(interactionID)
 	if id == "" {

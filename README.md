@@ -517,9 +517,10 @@ client.RegisterFunc(qqbotsdk.EventInteractionCreate, func(ctx context.Context, e
 
 几条必须知道的规则：
 
-- **同一个 `interaction_id` 只能回应一次**，超时后失效。因为这条规则，SDK **不会**自动回应 —— 回应码承载的是你的业务语义（成功／无权限／频繁），自动回应会把它冲掉。
+- **同一个 `interaction_id` 只应回应一次**，超时后失效。因为这条规则，SDK **不会**自动回应 —— 回应码承载的是你的业务语义（成功／无权限／频繁），自动回应会把它冲掉。
+- **但"只能一次"并没有被错误码强制**：生产实测对同一 id 回应第二次**依然返回成功**（推测只有第一次生效）。所以别指望靠捕获错误来发现自己重复回应了，自己保证只回一次。
 - `interaction_id` 取自事件的 **`d.id`**。文档特别提醒**不带 `INTERACTION_CREATE:` 前缀**；SDK 会容忍你误带前缀（自动剥掉）并做转义，但正确写法就是 `data.ID`。
-- 本地只校验 `interaction_id` 非空、`code` 在 0–5 之间。**平台侧条件靠平台兜底**：重复回应、窗口过期、token 与 appid 不匹配这些只有平台知道，会以 `630001–630008` 的 `OpenAPIError` 返回（如 `ErrInteractionAppIDMismatch` 表示 AppID 与 interaction_id 不匹配）。
+- 本地只校验 `interaction_id` 非空、`code` 在 0–5 之间。**平台侧条件靠平台兜底**：窗口过期、token 与 appid 不匹配这些只有平台知道，会以 `630001–630008` 的 `OpenAPIError` 返回（如 `ErrInteractionAppIDMismatch` 表示 AppID 与 interaction_id 不匹配）。
 
 ### 主动消息与被动消息
 

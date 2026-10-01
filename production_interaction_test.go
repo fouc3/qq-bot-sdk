@@ -118,12 +118,14 @@ func TestProductionInteractionResponse(t *testing.T) {
 	t.Logf("answered the interaction in %s; the client should have stopped loading",
 		time.Since(started).Round(time.Millisecond))
 
-	// An interaction may be answered once, so this second call must be refused.
-	err := client.RespondInteraction(ctx, interaction.ID, qqbotsdk.InteractionCodeSuccess)
-	if err == nil {
-		t.Error("answering the same interaction twice must be refused")
+	// The documentation says an interaction may be answered only once. It is
+	// not enforced by an error: production accepted this second answer, so only
+	// the first one presumably takes effect. The observation is logged rather
+	// than asserted, since the platform may tighten it without notice.
+	if err := client.RespondInteraction(ctx, interaction.ID, qqbotsdk.InteractionCodeSuccess); err != nil {
+		t.Logf("the second answer was refused: %v", err)
 	} else {
-		t.Logf("the second answer was refused as documented: %v", err)
+		t.Log("the second answer was accepted, so \"only once\" is not enforced by an error")
 	}
 
 	// The prefix must never be sent, so the answered id is the bare one, which
