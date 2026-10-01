@@ -625,22 +625,15 @@ func mustDecode(t *testing.T, payload *Payload) any {
 	return value
 }
 
-// TestEventsWithoutStructures pins exactly which event types have no body
-// structure, so the gap stays visible instead of being forgotten.
+// TestEveryEventHasAStructure requires every event type name to have a body
+// structure, so a newly added event name cannot silently be left undecodable.
 //
-// These fall into three groups:
-//
-//   - AUDIO_*: the page that looked like audio events documents the
-//     POST /channels/{channel_id}/audio request instead, so no body is
-//     described.
-//   - GUILD_MEMBER_*: the v2 wiki only lists them as event types a passive
-//     reply may answer; no field table is published.
-//   - READY and RESUMED: the connection lifecycle events, likewise without a
-//     documented body.
-//
-// If the platform documents one of them, this test fails on purpose and should
-// be updated together with EventDataFor.
-func TestEventsWithoutStructures(t *testing.T) {
+// Two of the structures are inferred rather than spelled out on an event page,
+// and both are marked as such where they are declared: AudioAction for the four
+// AUDIO_* events, and MemberWithGuildID for the three GUILD_MEMBER_* events.
+// Each is a documented object that no endpoint uses, which is what identifies
+// it as the event body.
+func TestEveryEventHasAStructure(t *testing.T) {
 	allEvents := []string{
 		"AT_MESSAGE_CREATE", "AUDIO_FINISH", "AUDIO_OFF_MIC", "AUDIO_ON_MIC", "AUDIO_START",
 		"CHANNEL_CREATE", "CHANNEL_DELETE", "CHANNEL_UPDATE",
@@ -659,23 +652,12 @@ func TestEventsWithoutStructures(t *testing.T) {
 		"READY", "RESUMED", "SUBSCRIBE_MESSAGE_STATUS",
 	}
 
-	expectedMissing := map[string]bool{
-		"AUDIO_FINISH": true, "AUDIO_OFF_MIC": true, "AUDIO_ON_MIC": true, "AUDIO_START": true,
-		"GUILD_MEMBER_ADD": true, "GUILD_MEMBER_REMOVE": true, "GUILD_MEMBER_UPDATE": true,
-		"READY": true, "RESUMED": true,
-	}
-
 	for _, eventType := range allEvents {
-		hasStructure := EventDataFor(eventType) != nil
-		if expectedMissing[eventType] && hasStructure {
-			t.Errorf("%s now has a structure: remove it from expectedMissing", eventType)
-		}
-		if !expectedMissing[eventType] && !hasStructure {
-			t.Errorf("%s has no structure: add one, or list it as expected missing", eventType)
+		if EventDataFor(eventType) == nil {
+			t.Errorf("%s has no body structure", eventType)
 		}
 	}
-
-	if covered := len(allEvents) - len(expectedMissing); covered != 37 {
-		t.Errorf("covered events = %d, want 37", covered)
+	if len(allEvents) != 46 {
+		t.Errorf("allEvents has %d entries, want the 46 documented event types", len(allEvents))
 	}
 }

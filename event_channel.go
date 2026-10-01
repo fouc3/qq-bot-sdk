@@ -26,6 +26,26 @@ type Member struct {
 	JoinedAt string `json:"joined_at,omitempty"`
 }
 
+// MemberWithGuildID is a membership together with the guild it belongs to.
+//
+// It is the body of the three member events: GUILD_MEMBER_ADD,
+// GUILD_MEMBER_UPDATE and GUILD_MEMBER_REMOVE. Note on the source: the intent
+// table lists those events without describing their body, and no documented
+// endpoint returns this shape — the member endpoints return Member — so this
+// documented object is the event body.
+type MemberWithGuildID struct {
+	// GuildID is the guild id.
+	GuildID string `json:"guild_id,omitempty"`
+	// User is the guild level user information.
+	User *User `json:"user,omitempty"`
+	// Nick is the guild nickname.
+	Nick string `json:"nick,omitempty"`
+	// Roles are the id group ids the member holds.
+	Roles []string `json:"roles,omitempty"`
+	// JoinedAt is when the user joined the guild, in ISO8601.
+	JoinedAt string `json:"joined_at,omitempty"`
+}
+
 // GuildMessage is the channel message object carried by AT_MESSAGE_CREATE,
 // MESSAGE_CREATE and DIRECT_MESSAGE_CREATE.
 //

@@ -19,8 +19,9 @@ QQ 机器人（QQ Bot）开放平台 SDK，Go 实现。参考官方文档：[QQ 
 | `APIError` | 获取凭证接口的业务错误 |
 | `OpenAPIErrorCode` | 公共错误码常量（约 70 个，含符号名） |
 | `Payload` / `OpCode` | 官方网关数据结构 `{id,op,d,s,t}` 与全部 opcode |
-| `Intent` | 事件订阅位掩码（11 类，含事件类型常量） |
+| `Intent` | 事件订阅位掩码（12 类，含全部事件类型常量） |
 | `Dispatcher` | 事件分发器，按类型注册、并发分发、panic 隔离 |
+| `DecodeEvent` / `EventDataFor` | 按事件类型解码事件体，46 个事件全部有结构 |
 | `Transport` | 传输层接口，Webhook 与 WebSocket 两种实现 |
 | `WebhookTransport` | HTTP 回调接入，Ed25519 验签、地址验证、ACK 回包 |
 | `WebSocketTransport` | 网关长连接，Hello/Identify/Resume/心跳/重连 |
@@ -267,9 +268,7 @@ if err != nil {
 
 reg := client.Register(qqbotsdk.EventGroupAtMessageCreate, qqbotsdk.EventHandlerFunc(
 	func(ctx context.Context, event *qqbotsdk.Event) error {
-		var data struct {
-			Content string `json:"content"`
-		}
+		var data qqbotsdk.GroupMessageCreateData
 		if err := event.DecodeData(&data); err != nil {
 			return err
 		}
@@ -293,6 +292,48 @@ client := qqbotsdk.NewClient(appID, clientSecret,
 	)),
 )
 ```
+
+### 事件内容与解码
+
+46 个事件类型**全部**有对应的 Go 结构。用 `DecodeEvent` 按事件类型自动解出，不必自己写匿名 struct：
+
+```go
+value, err := qqbotsdk.DecodeEvent(payload)
+switch data := value.(type) {
+case *qqbotsdk.GroupMessageCreateData:
+	fmt.Println(data.Content, data.GroupOpenID, data.Author.MemberOpenID)
+case *qqbotsdk.C2CMessageCreateData:
+	fmt.Println(data.Content)
+case *qqbotsdk.FriendAddData:
+	fmt.Println(data.Scene, data.SceneParam) // 分享链接带来的 callback_data
+}
+```
+
+`EventDataFor(事件类型)` 返回该事件应解入的空结构，未知类型返回 `nil`；`DecodeEvent` 对未知类型与不匹配的事件体都会**明确报错**，不会静默解成空值。
+
+| 分组 | 事件 | 结构 |
+| --- | --- | --- |
+| 单聊/群聊 | `C2C_MESSAGE_CREATE`、`GROUP_AT_MESSAGE_CREATE`、`GROUP_MESSAGE_CREATE` | `C2CMessageCreateData`、`GroupMessageCreateData` |
+| 好友与群 | `FRIEND_ADD/DEL`、`GROUP_ADD_ROBOT`、`GROUP_DEL_ROBOT`、`GROUP_MEMBER_ADD/REMOVE`、`GROUP_JOIN_REQUEST`、`C2C_MSG_RECEIVE/REJECT`、`GROUP_MSG_RECEIVE/REJECT`、`SUBSCRIBE_MESSAGE_STATUS` | 各自结构 |
+| 频道 | `GUILD_CREATE/UPDATE/DELETE`、`CHANNEL_CREATE/UPDATE/DELETE` | `GuildInfo`、`ChannelInfo` |
+| 频道消息 | `AT_MESSAGE_CREATE`、`MESSAGE_CREATE`、`DIRECT_MESSAGE_CREATE` | `GuildMessage` |
+| 消息删除/审核/表态 | `MESSAGE_DELETE`、`PUBLIC_MESSAGE_DELETE`、`DIRECT_MESSAGE_DELETE`、`MESSAGE_AUDIT_PASS/REJECT`、`MESSAGE_REACTION_ADD/REMOVE` | `MessageDelete`、`MessageAudited`、`MessageReaction` |
+| 论坛 | `FORUM_THREAD_*`、`FORUM_POST_*`、`FORUM_REPLY_*`、`FORUM_PUBLISH_AUDIT_RESULT` | `ForumThreadEvent`、`ForumPostEvent`、`ForumReplyEvent`、`ForumAuditResult` |
+| 互动 | `INTERACTION_CREATE` | `InteractionCreateData` |
+| 音频 | `AUDIO_START/FINISH/ON_MIC/OFF_MIC` | `AudioAction` |
+| 频道成员 | `GUILD_MEMBER_ADD/UPDATE/REMOVE` | `MemberWithGuildID` |
+| 连接生命周期 | `READY`、`RESUMED` | `ReadyData`、`ResumedData` |
+
+> `GuildMessage` **不是** `Message`：后者是发送消息的请求体，前者是频道消息事件的内容对象，两者字段不同，故意分开命名。
+
+几处便利方法：`MessageScene.MsgIdx()/RefMsgIdx()/AuthToken()`（文档要求用 `msg_idx` 去重）、`MessageAttachment.IsVoice()/IsImage()`、`InteractionCreateData.NeedsResponse()`、`Emoji.IsBuiltinEmoji()`、`RichTextValue.PlainText()`、`ReadyData.ShardInfo()`。
+
+**两个结构是推断而来的**，代码注释里都写明了依据：`AudioAction`（四个 `AUDIO_*` 事件）与 `MemberWithGuildID`（三个 `GUILD_MEMBER_*` 事件）。依据是——它们是官方定义的对象，却**没有任何接口使用**，而那几类事件没有公布字段表。
+
+文档本身有两处自相矛盾，SDK 均已兼容：
+
+- **论坛事件**：字段表说 `title`/`content` 是 `string`，而所有示例都是富文本对象数组 → `RichTextValue` 两种都收。
+- **ID 类型**：论坛示例里 `guild_id` 是数字 `47129941624960822`、`emoji_info.id` 也是数字，字段表却写 string → 两种都解，否则真实事件会整体解码失败。
 
 ### Webhook
 

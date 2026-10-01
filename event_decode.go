@@ -15,6 +15,10 @@ func EventDataFor(eventType string) any {
 	case EventChannelCreate, EventChannelUpdate, EventChannelDelete:
 		return &ChannelInfo{}
 
+	// GUILD_MEMBERS.
+	case EventGuildMemberAdd, EventGuildMemberUpdate, EventGuildMemberRemove:
+		return &MemberWithGuildID{}
+
 	// Channel messages, from any of the message intents.
 	case EventMessageCreate, EventAtMessageCreate, EventDirectMessageCreate:
 		return &GuildMessage{}
@@ -36,6 +40,16 @@ func EventDataFor(eventType string) any {
 		return &ForumReplyEvent{}
 	case EventForumPublishAuditResult:
 		return &ForumAuditResult{}
+
+	// AUDIO_ACTION.
+	case EventAudioStart, EventAudioFinish, EventAudioOnMic, EventAudioOffMic:
+		return &AudioAction{}
+
+	// Connection lifecycle, delivered without an intent.
+	case EventReady:
+		return &ReadyData{}
+	case EventResumed:
+		return &ResumedData{}
 
 	// GROUP_AND_C2C.
 	case EventC2CMessageCreate:
