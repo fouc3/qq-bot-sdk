@@ -38,8 +38,8 @@ func TestGetBotInfoMatchesDocumentedExample(t *testing.T) {
 	if info.Username != "阳光小助手" {
 		t.Errorf("Username = %q", info.Username)
 	}
-	if !info.Bot {
-		t.Error("Bot = false, want true")
+	if value, reported := info.IsBot(); !reported || !value {
+		t.Errorf("IsBot = %v, %v; want true, true", value, reported)
 	}
 	if info.UnionOpenID != "9F2E872045CCCC5948BEAF5B5FCCDF22" {
 		t.Errorf("UnionOpenID = %q", info.UnionOpenID)
@@ -64,6 +64,39 @@ func TestGetBotInfoWithoutOptionalFields(t *testing.T) {
 	}
 	if info.UnionOpenID != "" || info.UnionUserAccount != "" {
 		t.Errorf("info = %+v, want the restricted fields empty", info)
+	}
+}
+
+// TestGetBotInfoLiveShape uses the shape the real API returns, captured from
+// production. It omits the bot key the documented example shows, so Bot must
+// stay nil rather than reporting the account is not a bot.
+//
+// The identifiers are placeholders: what matters is which keys the live body
+// carries, not their values.
+func TestGetBotInfoLiveShape(t *testing.T) {
+	client, _ := newMessageServer(t, http.StatusOK, `{
+		"id": "9000000000000000001",
+		"username": "示例机器人",
+		"avatar": "http://thirdqq.qlogo.cn/g?b=oidb&k=placeholder",
+		"share_url": "https://qun.qq.com/qunpro/robot/qunshare?robot_uin=1000000&robot_appid=100000000&biz_type=0",
+		"welcome_msg": ""
+	}`)
+
+	info, err := client.GetBotInfo(t.Context())
+	if err != nil {
+		t.Fatalf("GetBotInfo: %v", err)
+	}
+	if info.ID != "9000000000000000001" || info.Username != "示例机器人" {
+		t.Errorf("info = %+v", info)
+	}
+	if value, reported := info.IsBot(); reported {
+		t.Errorf("IsBot = %v, %v; want the field reported as absent", value, reported)
+	}
+	if info.ShareURL == "" {
+		t.Error("the live body carries a share url, which must be decoded")
+	}
+	if info.UnionOpenID != "" {
+		t.Errorf("UnionOpenID = %q, want empty since the live body omits it", info.UnionOpenID)
 	}
 }
 

@@ -28,19 +28,35 @@ type BotInfo struct {
 	// Avatar is the avatar URL.
 	Avatar string `json:"avatar"`
 	// Bot reports whether the account is a bot.
-	Bot bool `json:"bot"`
+	//
+	// It is a pointer because the live platform does not send the field at
+	// all: calling GET /users/@me for the bot account returns id, username,
+	// avatar, share_url and welcome_msg, but no bot key, even though the
+	// documented example shows "bot": true. A plain bool would therefore
+	// report a bot as "not a bot". Nil means the platform did not say.
+	Bot *bool `json:"bot,omitempty"`
 	// UnionOpenID is the cross-application user openid. The platform returns
-	// it only after a special application and configuration.
+	// it only after a special application and configuration; it was absent
+	// from the live response.
 	UnionOpenID string `json:"union_openid,omitempty"`
 	// UnionUserAccount is the cross-application user account, under the same
 	// restriction as UnionOpenID.
 	UnionUserAccount string `json:"union_user_account,omitempty"`
 	// ShareURL is the bot's share link. It appears in the documented response
-	// example but not in the field table, so it may be absent.
+	// example but not in the field table. The live platform does return it.
 	ShareURL string `json:"share_url,omitempty"`
 	// WelcomeMsg is the bot's welcome message, with the same caveat as
-	// ShareURL.
+	// ShareURL. The live platform returns the key, empty when unset.
 	WelcomeMsg string `json:"welcome_msg,omitempty"`
+}
+
+// IsBot reports whether the platform said the account is a bot, and whether it
+// said anything at all.
+func (b *BotInfo) IsBot() (value, reported bool) {
+	if b == nil || b.Bot == nil {
+		return false, false
+	}
+	return *b.Bot, true
 }
 
 // GuildInfo describes one guild.
