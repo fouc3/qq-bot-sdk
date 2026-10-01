@@ -25,7 +25,7 @@ func c2cHarness(t *testing.T, cfg productionConfig) (*qqbotsdk.Client, *qqbotsdk
 	client := productionClient(cfg)
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 
-	gateway, err := client.GetGateway(ctx)
+	gatewayURL, err := cachedGateway(ctx, client)
 	if err != nil {
 		cancel()
 		t.Fatalf("GetGateway: %v", err)
@@ -53,7 +53,7 @@ func c2cHarness(t *testing.T, cfg productionConfig) (*qqbotsdk.Client, *qqbotsdk
 		return nil
 	})
 
-	client.UseTransport(qqbotsdk.NewWebSocketTransport(gateway.URL,
+	client.UseTransport(qqbotsdk.NewWebSocketTransport(gatewayURL,
 		qqbotsdk.WithIntents(qqbotsdk.IntentGroupAndC2CEvent)))
 	if err := client.Start(ctx); err != nil {
 		cancel()

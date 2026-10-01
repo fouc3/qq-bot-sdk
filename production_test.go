@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -72,6 +73,36 @@ func loadProductionConfig(t *testing.T) productionConfig {
 	}
 	return cfg
 }
+
+// cachedGateway fetches the websocket address once per test process.
+//
+// GET /gateway is rate limited: running every test in one go, each opening its
+// own connection, was answered with "接口调用超过频率限制" (40023001) after a
+// few calls. The address does not depend on the token, so it is reused; a
+// failure is not cached, so a later test may still succeed.
+func cachedGateway(ctx context.Context, client *qqbotsdk.Client) (string, error) {
+	gatewayMu.Lock()
+	cached := gatewayURL
+	gatewayMu.Unlock()
+	if cached != "" {
+		return cached, nil
+	}
+
+	gateway, err := client.GetGateway(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	gatewayMu.Lock()
+	gatewayURL = gateway.URL
+	gatewayMu.Unlock()
+	return gateway.URL, nil
+}
+
+var (
+	gatewayMu  sync.Mutex
+	gatewayURL string
+)
 
 // productionClient builds a client from the live credentials.
 func productionClient(cfg productionConfig) *qqbotsdk.Client {
@@ -127,11 +158,11 @@ func TestProductionC2CRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
 
-	gateway, err := client.GetGateway(ctx)
+	gatewayURL, err := cachedGateway(ctx, client)
 	if err != nil {
 		t.Fatalf("GetGateway: %v", err)
 	}
-	t.Logf("gateway: %s", gateway.URL)
+	t.Logf("gateway: %s", gatewayURL)
 
 	// One handler for the readiness signal, one for the message we are waiting
 	// for. Both decode through the typed event bodies.
@@ -169,7 +200,7 @@ func TestProductionC2CRoundTrip(t *testing.T) {
 		return nil
 	})
 
-	client.UseTransport(qqbotsdk.NewWebSocketTransport(gateway.URL,
+	client.UseTransport(qqbotsdk.NewWebSocketTransport(gatewayURL,
 		qqbotsdk.WithIntents(qqbotsdk.IntentGroupAndC2CEvent)))
 
 	if err := client.Start(ctx); err != nil {

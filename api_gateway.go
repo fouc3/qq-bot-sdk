@@ -41,6 +41,12 @@ type GatewayBot struct {
 }
 
 // GetGateway returns the general WSS access point.
+//
+// The endpoint is heavily rate limited: the documentation gives 2 requests per
+// minute with a burst of 10. A caller that opens a connection per event, or
+// that polls this from several goroutines, is therefore answered with
+// "接口调用超过频率限制" (40023001). Fetch the address once and reuse it; a
+// reconnect reuses the same address.
 func (c *Client) GetGateway(ctx context.Context) (*Gateway, error) {
 	var gateway Gateway
 	if err := c.doJSON(ctx, http.MethodGet, gatewayPath, nil, &gateway, openAPICall); err != nil {

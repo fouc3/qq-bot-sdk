@@ -36,7 +36,7 @@ func TestProductionGroupRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
 
-	gateway, err := client.GetGateway(ctx)
+	gatewayURL, err := cachedGateway(ctx, client)
 	if err != nil {
 		t.Fatalf("GetGateway: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestProductionGroupRoundTrip(t *testing.T) {
 	client.RegisterFunc(qqbotsdk.EventGroupAtMessageCreate, collect(qqbotsdk.EventGroupAtMessageCreate))
 	client.RegisterFunc(qqbotsdk.EventGroupMessageCreate, collect(qqbotsdk.EventGroupMessageCreate))
 
-	client.UseTransport(qqbotsdk.NewWebSocketTransport(gateway.URL,
+	client.UseTransport(qqbotsdk.NewWebSocketTransport(gatewayURL,
 		qqbotsdk.WithIntents(qqbotsdk.IntentGroupAndC2CEvent)))
 	if err := client.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
