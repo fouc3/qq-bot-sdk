@@ -43,7 +43,11 @@ type BotInfo struct {
 	WelcomeMsg string `json:"welcome_msg,omitempty"`
 }
 
-// GuildInfo describes one guild the bot has joined.
+// GuildInfo describes one guild.
+//
+// It is used both by the guild list endpoint and by the guild create, update
+// and delete events. The list endpoint returns Owner; the events return
+// OpUserID instead, so each is absent in the other's payload.
 type GuildInfo struct {
 	// ID is the guild id.
 	ID string `json:"id"`
@@ -53,7 +57,7 @@ type GuildInfo struct {
 	Icon string `json:"icon"`
 	// OwnerID is the id of the guild creator.
 	OwnerID string `json:"owner_id"`
-	// Owner reports whether the bot owns the guild.
+	// Owner reports whether the bot owns the guild, in the list response.
 	Owner bool `json:"owner"`
 	// JoinedAt is when the bot joined, in ISO8601.
 	JoinedAt string `json:"joined_at"`
@@ -63,6 +67,8 @@ type GuildInfo struct {
 	MaxMembers int `json:"max_members"`
 	// Description is the guild description.
 	Description string `json:"description"`
+	// OpUserID is the id of the operator, in a guild event.
+	OpUserID string `json:"op_user_id,omitempty"`
 }
 
 // guildListResponse accepts both shapes the documentation shows for the guild

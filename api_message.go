@@ -347,12 +347,33 @@ type MessageArkObjKV struct {
 	Value string `json:"value,omitempty"`
 }
 
-// User is the author object of a channel message.
+// User is a user object.
+//
+// The channel message author, the group and single chat message author, and the
+// mention list all use this shape. Which identifier is populated depends on the
+// scenario: UserOpenID in a single chat, MemberOpenID in a group, and ID in a
+// channel. The optional cross-application fields are only returned once the bot
+// has applied for them.
 type User struct {
-	ID       string `json:"id,omitempty"`
+	// ID is the user identifier, in OpenID form for the group and single chat
+	// scenarios.
+	ID string `json:"id,omitempty"`
+	// Username is the nickname.
 	Username string `json:"username,omitempty"`
-	Avatar   string `json:"avatar,omitempty"`
-	Bot      bool   `json:"bot,omitempty"`
+	// Avatar is the avatar URL.
+	Avatar string `json:"avatar,omitempty"`
+	// Bot reports whether the account is a bot.
+	Bot bool `json:"bot,omitempty"`
+	// UnionOpenID is the cross-application user OpenID, and may be empty.
+	UnionOpenID string `json:"union_openid,omitempty"`
+	// UnionUserAccount is the cross-application user account, and may be empty.
+	UnionUserAccount string `json:"union_user_account,omitempty"`
+	// UserOpenID is the user OpenID, used in a single chat.
+	UserOpenID string `json:"user_openid,omitempty"`
+	// MemberOpenID is the group member OpenID, used in a group chat.
+	MemberOpenID string `json:"member_openid,omitempty"`
+	// MemberRole is the role in the group: member, admin or owner.
+	MemberRole string `json:"member_role,omitempty"`
 }
 
 // ChannelMessageResponse is the channel message object returned after a send.

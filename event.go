@@ -136,6 +136,7 @@ const (
 	IntentGuildMessages         Intent = 1 << 9 // 私域 only
 	IntentGuildMessageReactions Intent = 1 << 10
 	IntentDirectMessage         Intent = 1 << 12
+	IntentGroupMemberEvent      Intent = 1 << 24
 	IntentGroupAndC2CEvent      Intent = 1 << 25
 	IntentInteraction           Intent = 1 << 26
 	IntentMessageAudit          Intent = 1 << 27
@@ -187,6 +188,11 @@ const (
 	EventDirectMessageCreate = "DIRECT_MESSAGE_CREATE"
 	EventDirectMessageDelete = "DIRECT_MESSAGE_DELETE"
 
+	// IntentGroupMemberEvent.
+	EventGroupMemberAdd    = "GROUP_MEMBER_ADD"
+	EventGroupMemberRemove = "GROUP_MEMBER_REMOVE"
+	EventGroupJoinRequest  = "GROUP_JOIN_REQUEST"
+
 	// IntentGroupAndC2CEvent.
 	EventC2CMessageCreate     = "C2C_MESSAGE_CREATE"
 	EventFriendAdd            = "FRIEND_ADD"
@@ -194,10 +200,12 @@ const (
 	EventC2CMsgReject         = "C2C_MSG_REJECT"
 	EventC2CMsgReceive        = "C2C_MSG_RECEIVE"
 	EventGroupAtMessageCreate = "GROUP_AT_MESSAGE_CREATE"
+	EventGroupMessageCreate   = "GROUP_MESSAGE_CREATE"
 	EventGroupAddRobot        = "GROUP_ADD_ROBOT"
 	EventGroupDelRobot        = "GROUP_DEL_ROBOT"
 	EventGroupMsgReject       = "GROUP_MSG_REJECT"
 	EventGroupMsgReceive      = "GROUP_MSG_RECEIVE"
+	EventSubscribeMsgStatus   = "SUBSCRIBE_MESSAGE_STATUS"
 
 	// IntentInteraction.
 	EventInteractionCreate = "INTERACTION_CREATE"
@@ -259,8 +267,13 @@ var eventIntents = map[string]Intent{
 	EventC2CMessageCreate: IntentGroupAndC2CEvent, EventFriendAdd: IntentGroupAndC2CEvent,
 	EventFriendDel: IntentGroupAndC2CEvent, EventC2CMsgReject: IntentGroupAndC2CEvent,
 	EventC2CMsgReceive: IntentGroupAndC2CEvent, EventGroupAtMessageCreate: IntentGroupAndC2CEvent,
-	EventGroupAddRobot: IntentGroupAndC2CEvent, EventGroupDelRobot: IntentGroupAndC2CEvent,
+	EventGroupMessageCreate: IntentGroupAndC2CEvent,
+	EventGroupAddRobot:      IntentGroupAndC2CEvent, EventGroupDelRobot: IntentGroupAndC2CEvent,
 	EventGroupMsgReject: IntentGroupAndC2CEvent, EventGroupMsgReceive: IntentGroupAndC2CEvent,
+	EventSubscribeMsgStatus: IntentGroupAndC2CEvent,
+
+	EventGroupMemberAdd: IntentGroupMemberEvent, EventGroupMemberRemove: IntentGroupMemberEvent,
+	EventGroupJoinRequest: IntentGroupMemberEvent,
 
 	EventInteractionCreate: IntentInteraction,
 
