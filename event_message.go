@@ -167,9 +167,19 @@ type C2CMessageCreateData struct {
 // GroupMessageCreateData is the body of GROUP_AT_MESSAGE_CREATE and
 // GROUP_MESSAGE_CREATE: a message was sent in a group.
 //
-// The two events carry the same structure; the first is triggered when the bot
-// is mentioned, the second when the bot receives every group message. The
-// content field has the mention prefix already removed.
+// The two events carry the same structure. GROUP_AT_MESSAGE_CREATE fires when
+// the bot is mentioned; GROUP_MESSAGE_CREATE fires for every group message once
+// the group runs in full receive mode.
+//
+// Content handling differs between them, and only the mention event has the
+// prefix removed. In full receive mode the mention is still in the text as
+// markup, so a captured live event read:
+//
+//	"<@C478CF64E02874467B2452D5409CA956> hello"
+//
+// A handler that assumes plain text therefore drops the difference between the
+// two events, and should strip a leading <@...> when it needs the message
+// itself.
 type GroupMessageCreateData struct {
 	// ID is the message id, usable for a passive reply and for recall.
 	ID string `json:"id"`

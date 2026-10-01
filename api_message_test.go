@@ -762,3 +762,15 @@ func TestMessageErrorRendering(t *testing.T) {
 		t.Errorf("err = %v, want the deduplication code to match", err)
 	}
 }
+
+// TestStreamMessageResponseStreamID pins the id a later chunk must carry: the
+// platform returns it as the ordinary response id.
+func TestStreamMessageResponseStreamID(t *testing.T) {
+	response := &StreamMessageResponse{MessageResponse: MessageResponse{ID: "STREAM1"}}
+	if got := response.StreamID(); got != "STREAM1" {
+		t.Errorf("StreamID = %q, want the response id", got)
+	}
+	if got := (*StreamMessageResponse)(nil).StreamID(); got != "" {
+		t.Errorf("a nil response must give an empty id, got %q", got)
+	}
+}

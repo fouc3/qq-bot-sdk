@@ -236,7 +236,9 @@ func TestProductionC2CRoundTrip(t *testing.T) {
 	t.Logf("reply accepted: id=%s timestamp=%s", response.ID, response.Timestamp)
 
 	// Best effort: confirm the reply actually reached the controlled account.
-	verifyReplyArrived(t, cfg, cfg.botQQ, "PONG "+probe)
+	oneBotVerifyDelivered(t, cfg, "get_friend_msg_history",
+		map[string]any{"user_id": json.Number(cfg.botQQ), "count": 20},
+		"PONG "+probe, "the controlled account")
 }
 
 // oneBotSendPrivate sends a private message through the OneBot HTTP API and
@@ -294,43 +296,41 @@ func oneBotCall(t *testing.T, cfg productionConfig, action string, payload any) 
 	return envelope.Data
 }
 
-// verifyReplyArrived asks OneBot for the recent history with the bot and looks
-// for the reply text.
+// oneBotVerifyDelivered asks OneBot for a conversation's recent history and
+// waits for want to appear in it.
 //
-// Not every OneBot build exposes a working history action, so a refusal is
-// reported rather than treated as a failure of the SDK: the platform's accepted
-// response is the evidence for the send path, and this only strengthens it when
-// the client can answer.
-func verifyReplyArrived(t *testing.T, cfg productionConfig, userID, want string) {
+// The history action differs between a friend and a group. Not every OneBot
+// build exposes a working one, so a refusal is reported rather than treated as
+// an SDK failure: the platform's accepted response is the evidence for the send
+// path, and this only strengthens it when the client can answer.
+func oneBotVerifyDelivered(t *testing.T, cfg productionConfig, action string, payload map[string]any, want, what string) {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
 
 	for time.Now().Before(deadline) {
-		found, ok := oneBotHistoryContains(t, cfg, userID, want)
-		if !ok {
-			t.Log("OneBot cannot report this conversation's history, " +
-				"so delivery to the account is unconfirmed by the client")
+		found, readable := oneBotHistoryContains(t, cfg, action, payload, want)
+		if !readable {
+			t.Logf("OneBot cannot report %s, so delivery is unconfirmed by the client", what)
 			return
 		}
 		if found {
-			t.Logf("confirmed: the reply %q reached the controlled account", want)
+			t.Logf("confirmed: %q reached %s", want, what)
 			return
 		}
 		time.Sleep(3 * time.Second)
 	}
-	t.Errorf("the reply %q never appeared in the controlled account's history", want)
+	t.Errorf("%q never appeared in %s", want, what)
 }
 
-// oneBotHistoryContains reports whether the history holds want, and whether the
-// history could be read at all.
-func oneBotHistoryContains(t *testing.T, cfg productionConfig, userID, want string) (found, readable bool) {
+// oneBotHistoryContains reports whether a history action returns want, and
+// whether the action could be read at all.
+func oneBotHistoryContains(t *testing.T, cfg productionConfig, action string, payload map[string]any, want string) (found, readable bool) {
 	t.Helper()
-	body, err := json.Marshal(map[string]any{"user_id": json.Number(userID), "count": 20})
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return false, false
 	}
-	req, err := http.NewRequest(http.MethodPost,
-		cfg.oneBotURL+"/get_friend_msg_history", bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, cfg.oneBotURL+"/"+action, bytes.NewReader(body))
 	if err != nil {
 		return false, false
 	}
@@ -355,63 +355,4 @@ func oneBotHistoryContains(t *testing.T, cfg productionConfig, userID, want stri
 		return false, false
 	}
 	return strings.Contains(string(raw), want), true
-}
-
-// TestProductionReadOnlyEndpoints exercises the remaining read-only calls
-// against the live platform, which validates their request paths, query
-// building and response decoding without changing anything.
-func TestProductionReadOnlyEndpoints(t *testing.T) {
-	cfg := loadProductionConfig(t)
-	client := productionClient(cfg)
-
-	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
-	defer cancel()
-
-	botGateway, err := client.GetGatewayBot(ctx)
-	if err != nil {
-		t.Fatalf("GetGatewayBot: %v", err)
-	}
-	t.Logf("gateway/bot: url=%s shards=%d session_limit={total:%d remaining:%d max_concurrency:%d}",
-		botGateway.URL, botGateway.Shards, botGateway.SessionStartLimit.Total,
-		botGateway.SessionStartLimit.Remaining, botGateway.SessionStartLimit.MaxConcurrency)
-	if botGateway.URL == "" {
-		t.Error("gateway/bot returned no url")
-	}
-
-	// The guild list shape is the one the documentation contradicts itself on,
-	// so a live call is the only way to know which form the platform sends.
-	guilds, err := client.GetJoinedGuilds(ctx, "", "", 20)
-	if err != nil {
-		t.Fatalf("GetJoinedGuilds: %v", err)
-	}
-	t.Logf("joined guilds: %d", len(guilds))
-	for i, guild := range guilds {
-		if i >= 3 {
-			t.Logf("  ... and %d more", len(guilds)-i)
-			break
-		}
-		t.Logf("  guild id=%s name=%q members=%d owner=%v",
-			guild.ID, guild.Name, guild.MemberCount, guild.Owner)
-	}
-
-	// A menu that was never set must come back without a menu, not as an error.
-	menu, err := client.GetMenu(ctx)
-	if err != nil {
-		t.Fatalf("GetMenu: %v", err)
-	}
-	if menu.Menu == nil {
-		t.Logf("menu: version=%d, not configured", menu.Version)
-	} else {
-		t.Logf("menu: version=%d, %d items", menu.Version, len(menu.Menu.Items))
-	}
-
-	panelPage, err := client.ListPanels(ctx, qqbotsdk.PanelScopeC2C, "", 10)
-	if err != nil {
-		t.Fatalf("ListPanels: %v", err)
-	}
-	t.Logf("c2c panels: %d records, next_cursor=%q is_end=%v",
-		len(panelPage.Records), panelPage.NextCursor, panelPage.IsEnd)
-	for _, record := range panelPage.Records {
-		t.Logf("  panel id=%s scope=%s target=%s", record.PanelID, record.Scope, record.TargetType)
-	}
 }

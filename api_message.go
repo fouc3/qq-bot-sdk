@@ -272,6 +272,18 @@ type StreamMessageResponse struct {
 	RemainMsgLen int `json:"remain_msg_len,omitempty"`
 }
 
+// StreamID returns the id a later chunk must carry as StreamMessage.StreamMsgID.
+//
+// The platform generates it with the first chunk and returns it as the ordinary
+// response id, which the documentation describes as "the id returned by the
+// previous chunk", so it is the same field as MessageResponse.ID.
+func (r *StreamMessageResponse) StreamID() string {
+	if r == nil {
+		return ""
+	}
+	return r.ID
+}
+
 // ChannelMessage is the request body of the channel and direct-message send
 // endpoints.
 //
