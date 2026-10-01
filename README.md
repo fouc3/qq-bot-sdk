@@ -38,6 +38,8 @@ QQ 机器人（QQ Bot）开放平台 SDK，Go 实现。参考官方文档：[QQ 
 | `UploadC2CFile` / `UploadGroupFile` | 富媒体 URL 上传，或分片上传合并 |
 | `PrepareC2CUpload` / `FinishC2CUploadPart` | 分片上传的预上传与分片完成（群聊同理） |
 | `Message` / `Keyboard` / `MessageArk` / `MessageEmbed` | 消息类型与卡片、按钮等请求结构 |
+| `AddReaction` / `RemoveReaction` | 频道消息的表情表态（添加／删除） |
+| `ReactionUsers` | 拉取某条消息某表情的表态用户（分页） |
 | 消息错误码 | `errcode_message.go`，约 60 个按接口归类的错误码 |
 
 ## 安装
@@ -450,6 +452,35 @@ if qqbotsdk.IsOpenAPIError(err, qqbotsdk.ErrReplyMsgIDExpired) {
 ```
 
 常见：`ErrMsgTypeMismatch`(22006)、`ErrMessageContentViolation`(40034006)、`ErrMessageDeduplicated`(40054005)、`ErrActiveMessageRateLimited`(40034100)、`ErrFileTooLarge`(850031)、`ErrRecallTimeExceeded`(40064004)。
+
+### 表情表态
+
+官方文档：[表情表态](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/emoji.html)。仅频道可用。
+
+| 接口 | 路径 |
+| --- | --- |
+| `AddReaction` | `PUT /channels/{channel_id}/messages/{message_id}/reactions/{type}/{id}` |
+| `RemoveReaction` | `DELETE 同上`（删除自己的表态） |
+| `ReactionUsers` | `GET 同上?cookie=&limit=`（分页，limit 默认 20、最大 50） |
+
+`type` 用 `EmojiTypeSystem`(1，系统表情，id 为数字) 或 `EmojiTypeEmoji`(2，Unicode emoji，id 为 emoji 本身)。`ReactionEmoji(id)` 可按 id 形态自动判定类型：
+
+```go
+emojiType, id, ok := qqbotsdk.ReactionEmoji("203") // 1, "203", true
+if err := client.AddReaction(ctx, channelID, messageID, emojiType, id); err != nil {
+	log.Fatal(err)
+}
+```
+
+### 文本交互（内嵌格式）
+
+[文本交互](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/text-chain.html) 是**内容语法**，不是请求字段 —— 直接写在 `content` 或 `markdown` 里即可，无需额外结构：
+
+| 能力 | 格式 | 可用场景 |
+| --- | --- | --- |
+| @某人 | `<qqbot-at-user id="" />` | 群聊、文字子频道 |
+| @全体成员 | `<qqbot-at-everyone />` | 仅文字子频道（需权限） |
+| 回车指令 | `<qqbot-cmd-enter text="xxx" />` | markdown；`text` 需 urlencode，≤100 字符 |
 
 ## 开发
 
