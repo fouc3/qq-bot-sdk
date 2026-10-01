@@ -653,6 +653,26 @@ go vet ./...
 gofmt -l .
 ```
 
+### 生产测试
+
+`production_test.go`、`production_group_test.go`、`production_message_test.go`、`production_writes_test.go` 是**对真实平台**的集成测试，位于 `production` 构建标签之后 —— 普通 `go test` 绝不会联网或发出真实消息。凭证全部从环境变量读取，仓库里没有任何标识与密钥。
+
+```bash
+export QQBOT_APPID=... QQBOT_SECRET=...        # 机器人凭证
+export QQBOT_BOT_QQ=...                        # 机器人的 QQ 号（OneBot 侧收件人）
+export QQBOT_TEST_GROUP=...                    # 群聊测试用的群号（可选）
+export ONEBOT_URL=http://localhost:3000        # OneBot 11 HTTP 客户端
+export ONEBOT_KEY=... ONEBOT_SELF_QQ=...       # OneBot 凭证与其控制的 QQ
+go test -tags production -run TestProduction -v .
+```
+
+覆盖内容：凭证与机器人身份、网关、WebSocket 上线（READY）、单聊与群聊的收发往返、markdown／按钮／富媒体上传／流式消息、面板全生命周期（创建→读取→更新→列表→删除）与关联对象增删、菜单读取／修改／还原、分享链接、以及只读接口。**送达**不是靠"平台没报错"，而是通过 OneBot 读取对方会话历史独立核对。
+
+两个只有真实环境才会暴露的行为：
+
+- 群里开启「接收所有消息」后触发的是 `GROUP_MESSAGE_CREATE`，其 `content` **仍带 `<@openid>` 提及标记**，并未按文档去除前缀。
+- 流式消息能送达用户，但 QQ 客户端渲染为「暂不支持该消息类型」，因此送达核对只能认这个占位提示，比对正文必然失败。
+
 ## 说明
 
 - 本 SDK 为独立实现，与官方 `tencent-connect/botgo` 无关。
