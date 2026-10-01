@@ -42,7 +42,7 @@ type Credentials struct {
 	ClientSecret string
 }
 
-// Client talks to the QQ Bot OpenAPI.
+// Client talks to the QQ Bot OpenAPI and receives gateway events.
 //
 // A Client is safe for concurrent use.
 type Client struct {
@@ -58,6 +58,16 @@ type Client struct {
 
 	mu    sync.Mutex
 	token *AccessToken
+
+	// dispatcher routes received events to registered handlers. It is never
+	// nil, so Register works on a Client built any way.
+	dispatcher *Dispatcher
+	// transports are started by Start, in order.
+	transports []Transport
+	// running reports whether Start has been called and Stop has not.
+	running bool
+	// runCancel cancels the context the transports run under.
+	runCancel context.CancelFunc
 }
 
 // Option configures a Client.
@@ -107,6 +117,16 @@ func WithHeaders(headers http.Header) Option {
 	}
 }
 
+// WithDispatcher replaces the event dispatcher, for example to install an
+// error handler or a concurrency limit.
+func WithDispatcher(d *Dispatcher) Option {
+	return func(c *Client) {
+		if d != nil {
+			c.dispatcher = d
+		}
+	}
+}
+
 // NewClient returns a Client bound to the given bot credentials.
 func NewClient(appID, clientSecret string, opts ...Option) *Client {
 	c := newClient()
@@ -123,6 +143,7 @@ func newClient() *Client {
 		baseURL:    DefaultBaseURL,
 		httpClient: &http.Client{Timeout: defaultTimeout},
 		headers:    make(http.Header),
+		dispatcher: NewDispatcher(),
 	}
 }
 

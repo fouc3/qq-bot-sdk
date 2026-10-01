@@ -18,6 +18,15 @@ QQ 机器人（QQ Bot）开放平台 SDK，Go 实现。参考官方文档：[QQ 
 | `OpenAPIError` | OpenAPI 调用失败，携带请求地址、错误码、trace_id、HTTP 状态 |
 | `APIError` | 获取凭证接口的业务错误 |
 | `OpenAPIErrorCode` | 公共错误码常量（约 70 个，含符号名） |
+| `Payload` / `OpCode` | 官方网关数据结构 `{id,op,d,s,t}` 与全部 opcode |
+| `Intent` | 事件订阅位掩码（11 类，含事件类型常量） |
+| `Dispatcher` | 事件分发器，按类型注册、并发分发、panic 隔离 |
+| `Transport` | 传输层接口，Webhook 与 WebSocket 两种实现 |
+| `WebhookTransport` | HTTP 回调接入，Ed25519 验签、地址验证、ACK 回包 |
+| `WebSocketTransport` | 网关长连接，Hello/Identify/Resume/心跳/重连 |
+| `Signer` | Ed25519 签名与验签，回调地址验证应答 |
+| `GetGateway` / `GetGatewayBot` | 获取 WSS 接入点（含分片建议与 session 限额） |
+| `ShardID` | 分片计算：`(guild_id >> 22) % num_shards` |
 
 ## 安装
 
@@ -163,6 +172,158 @@ if errors.As(err, &apiErr) {
 
 需要立即换新凭证时调用 `InvalidateToken()`。
 
+## 事件订阅与通知
+
+官方文档：[通用数据结构](https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/event-emit/payload.html)、[Webhook 方式](https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/event-emit/webhook.html)、[WebSocket 方式](https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/event-emit/websocket.html)。
+
+两种接入方式共用**同一套**上下行结构，SDK 据此定义 `Payload`：
+
+```json
+{ "id": "event_id", "op": 0, "d": {}, "s": 42, "t": "GATEWAY_EVENT_NAME" }
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `id` | 事件 id |
+| `op` | opcode，见 `OpCode` |
+| `s` | 下行序列号，心跳时需回传客户端收到的最新值 |
+| `t` | 事件类型，`op` 为 `OpDispatch` 时有效 |
+| `d` | 事件内容，格式随 `t` 变化 |
+
+`d` 的结构随事件类型而变，因此用 `event.DecodeData(&v)` 显式解码，而不是让 SDK 猜测。
+
+### opcode
+
+| 值 | 名称 | 接入 | 行为 |
+| --- | --- | --- | --- |
+| 0 | Dispatch | 两者 | 收 |
+| 1 | Heartbeat | ws | 收/发 |
+| 2 | Identify | ws | 发 |
+| 6 | Resume | ws | 发 |
+| 7 | Reconnect | ws | 收 |
+| 9 | Invalid Session | ws | 收 |
+| 10 | Hello | ws | 收 |
+| 11 | Heartbeat ACK | ws | 收/回 |
+| 12 | HTTP Callback ACK | webhook | 回 |
+| 13 | 回调地址验证 | webhook | 收 |
+
+### intents
+
+`Intent` 是位掩码，需要哪类事件就把对应位置 1。`IntentsFor` 做组合，`IntentForEvent` 可由事件类型反查所属类别：
+
+```go
+intents := qqbotsdk.IntentsFor(
+	qqbotsdk.IntentPublicGuildMessages, // 1<<30，@机器人消息
+	qqbotsdk.IntentGroupAndC2CEvent,    // 1<<25，群/单聊
+)
+```
+
+基础类别（`GUILDS`、`GUILD_MEMBERS`、`PUBLIC_GUILD_MESSAGES`）默认有权限，其余需申请。**订阅无权限的 intents 会被网关报错并直接关闭连接**；若权限被取消，当前连接不报错但收不到事件，重连才报错。
+
+### 注册与分发
+
+`Dispatcher` 按事件类型路由，`WildcardEventType`（`"*"`）接收全部事件。处理器并发执行，**panic 与错误都被隔离**：一个处理器失败不影响其它处理器，也不会带崩进程。
+
+```go
+client, err := qqbotsdk.NewClientFromEnv() // 读环境变量
+if err != nil {
+	log.Fatal(err)
+}
+
+reg := client.Register(qqbotsdk.EventGroupAtMessageCreate, qqbotsdk.EventHandlerFunc(
+	func(ctx context.Context, event *qqbotsdk.Event) error {
+		var data struct {
+			Content string `json:"content"`
+		}
+		if err := event.DecodeData(&data); err != nil {
+			return err
+		}
+		return reply(ctx, data.Content)
+	},
+))
+defer reg.Cancel() // 动态注销
+```
+
+`Event` 内嵌 `*Payload`，因此 `event.Op`、`event.Type`、`event.ID`、`event.Sequence()` 直接可用；另有 `event.Transport` 标明来源（`webhook` / `websocket`）与 `event.ReceivedAt`。
+
+分发有两个入口：`Dispatch`（不等待，供传输层读取循环使用）与 `DispatchSync`（等待全部处理器，返回合并错误）。传输层与处理器失败统一经 `ErrorHandler` 上报，可自行替换：
+
+```go
+client := qqbotsdk.NewClient(appID, clientSecret,
+	qqbotsdk.WithDispatcher(qqbotsdk.NewDispatcher(
+		qqbotsdk.WithMaxConcurrency(32),
+		qqbotsdk.WithErrorHandler(func(ctx context.Context, e *qqbotsdk.Event, err error) {
+			slog.Error("handler failed", "err", err, "type", e.Type)
+		}),
+	)),
+)
+```
+
+### Webhook
+
+平台仅回调 **80 / 443 / 8080 / 8443** 端口，回调地址须为 HTTPS。SDK 会校验监听端口，不在其列直接报错，避免"静默收不到回调"。
+
+签名算法是 **Ed25519**（不是 HMAC）。`Bot Secret` 经重复填充得到 32 字节 seed，派生密钥对；签名体为 **`timestamp + body`**，签名值以 hex 放在 `X-Signature-Ed25519`，时间戳在 `X-Signature-Timestamp`。SDK 按文档实现，并用文档给出的 seed、公钥、op13 签名三组向量做了断言。
+
+**验签先于解析**：未通过验签的回调一律返回 401，不会进入任何处理器。
+
+```go
+webhook := qqbotsdk.NewWebhookTransport(
+	qqbotsdk.WithWebhookAddr(":8080"),
+	qqbotsdk.WithWebhookPath("/events"),
+	qqbotsdk.WithWebhookSecret(botSecret),
+	qqbotsdk.WithWebhookAppID(appID),
+)
+client.UseTransport(webhook)
+```
+
+已有 HTTP 服务时可只取 handler 挂载：
+
+```go
+handler, err := webhook.Handler(client.Dispatcher().Dispatch)
+mux.Handle("/events", handler)
+```
+
+回调地址验证（op 13）由 SDK 自动应答；普通事件回 op 12 ACK 后异步处理。若希望"处理器失败则让平台重试"，开启 `WithWebhookSyncDispatch(true)`，此时处理器出错会返回 HTTP 500（由 `Client.Start` 自动接线）。
+
+### WebSocket
+
+地址取自 `GetGateway`（`GET /gateway`）或 `GetGatewayBot`（`GET /gateway/bot`，另含建议分片数与会话限额）。SDK 负责全生命周期：
+
+- **Hello**（op 10）读取心跳周期；
+- **Identify**（op 2）携带 `QQBot {AccessToken}`、intents、shard、properties；
+- **心跳**（op 1）按周期发送，`d` 为收到的最新 `s`，首次为 `null`；收到 op 11 确认；
+- **Resume**（op 6）断线重连时携带 `session_id` 与 `seq`，网关自动补发遗漏事件；
+- **Reconnect**（op 7）与 **Invalid Session**（op 9）分别触发重连与重新 identify；
+- **重连退避**，并提供 `tokenFunc` 在每次连接前重新取 token，避免 token 过期后无法恢复。
+
+```go
+gateway, err := client.GetGatewayBot(ctx)
+socket := qqbotsdk.NewWebSocketTransport(gateway.URL,
+	qqbotsdk.WithIntents(intents),
+	qqbotsdk.WithShard(qqbotsdk.Shard{ID: 0, Count: 1}),
+)
+client.UseTransport(socket)
+```
+
+分片按频道 id 哈希：`ShardID(guildID, numShards)` 即文档的 `(guild_id >> 22) % num_shards`。无需分片用 `[0, 1]`。
+
+WebSocket 关闭码（`CloseCode`）按文档分类：`CanResume()` / `CanIdentify()` / `Fatal()`。**致命关闭码（如 intent 无权限 4014、机器人被封禁 4915）会停止重连**——继续重连只会被再次拒绝；其余情况按退避重连。
+
+### 生命周期
+
+```go
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+if err := client.Start(ctx); err != nil { // 启动全部 transport
+	log.Fatal(err)
+}
+defer client.Stop(context.Background()) // 反向停止并等待在途处理器
+```
+
+可只用 Webhook、只用 WebSocket，或两者同时启用。`Start` 期间任一 transport 启动失败，已启动的会被回滚停止；取消 `ctx` 等同于 `Stop`。
+
 ## 开发
 
 ```bash
@@ -173,4 +334,5 @@ gofmt -l .
 
 ## 说明
 
-本 SDK 为独立实现，与官方 `tencent-connect/botgo` 无关。
+- 本 SDK 为独立实现，与官方 `tencent-connect/botgo` 无关。
+- 官方文档「安全和授权」页的**验签示例签名无法用同页给出的密钥与消息复现**，本 SDK 以可复现的 seed、公钥与 op13 向量为准，并在测试中注明了该差异。

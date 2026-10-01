@@ -76,3 +76,67 @@ func ExampleOpenAPIError() {
 		fmt.Println(openAPIErr.TraceID)
 	}
 }
+
+// ExampleClient_Register shows subscribing to events and starting the
+// configured transports. Both delivery methods share the same Payload, so the
+// handler does not care which one is active.
+//
+// It carries no Output comment on purpose: go test would otherwise run it and
+// open a real connection.
+func ExampleClient_Register() {
+	client, err := qqbotsdk.NewClientFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Gateway URL comes from GetGateway or GetGatewayBot.
+	client.UseTransport(qqbotsdk.NewWebSocketTransport("wss://api.bot.qq.com/websocket/",
+		qqbotsdk.WithIntents(qqbotsdk.IntentsFor(
+			qqbotsdk.IntentPublicGuildMessages,
+			qqbotsdk.IntentGroupAndC2CEvent,
+		)),
+	))
+
+	registration := client.Register(qqbotsdk.EventGroupAtMessageCreate,
+		qqbotsdk.EventHandlerFunc(func(ctx context.Context, event *qqbotsdk.Event) error {
+			// The body shape depends on the event type.
+			var data struct {
+				Content string `json:"content"`
+			}
+			if err := event.DecodeData(&data); err != nil {
+				return err
+			}
+			fmt.Println("received:", data.Content)
+			return nil
+		}),
+	)
+	defer registration.Cancel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := client.Start(ctx); err != nil {
+		log.Fatal(err)
+	}
+	defer func() { _ = client.Stop(context.Background()) }()
+}
+
+// ExampleSigner_Verify shows verifying a webhook callback. Verification must
+// happen before the body is trusted or parsed.
+func ExampleSigner_Verify() {
+	signer, err := qqbotsdk.NewSigner("BOT_SECRET")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var (
+		timestamp    string // X-Signature-Timestamp
+		body         []byte // raw request body
+		signatureHex string // X-Signature-Ed25519
+	)
+	if err := signer.Verify(timestamp, body, signatureHex); errors.Is(err, qqbotsdk.ErrInvalidSignature) {
+		fmt.Println("rejected")
+		return
+	}
+	fmt.Println("verified")
+}

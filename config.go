@@ -29,6 +29,17 @@ var ErrNoCredentials = errors.New(
 	"qqbotsdk: no credentials configured: set ACCESS_TOKEN, or set both APPID and CLIENTSECRET",
 )
 
+// Transport lifecycle errors.
+var (
+	// ErrNoTransport reports Start called on a client without transports.
+	ErrNoTransport = errors.New("qqbotsdk: no transport configured")
+	// ErrAlreadyRunning reports Start on a client, or a transport, that is
+	// already running.
+	ErrAlreadyRunning = errors.New("qqbotsdk: already running")
+	// ErrNotRunning reports an operation that needs a running transport.
+	ErrNotRunning = errors.New("qqbotsdk: not running")
+)
+
 // Config holds the settings a Client is built from.
 type Config struct {
 	// AppID and ClientSecret enable the access token flow, including
