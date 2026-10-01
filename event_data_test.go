@@ -624,3 +624,58 @@ func mustDecode(t *testing.T, payload *Payload) any {
 	}
 	return value
 }
+
+// TestEventsWithoutStructures pins exactly which event types have no body
+// structure, so the gap stays visible instead of being forgotten.
+//
+// These fall into three groups:
+//
+//   - AUDIO_*: the page that looked like audio events documents the
+//     POST /channels/{channel_id}/audio request instead, so no body is
+//     described.
+//   - GUILD_MEMBER_*: the v2 wiki only lists them as event types a passive
+//     reply may answer; no field table is published.
+//   - READY and RESUMED: the connection lifecycle events, likewise without a
+//     documented body.
+//
+// If the platform documents one of them, this test fails on purpose and should
+// be updated together with EventDataFor.
+func TestEventsWithoutStructures(t *testing.T) {
+	allEvents := []string{
+		"AT_MESSAGE_CREATE", "AUDIO_FINISH", "AUDIO_OFF_MIC", "AUDIO_ON_MIC", "AUDIO_START",
+		"CHANNEL_CREATE", "CHANNEL_DELETE", "CHANNEL_UPDATE",
+		"DIRECT_MESSAGE_CREATE", "DIRECT_MESSAGE_DELETE",
+		"FORUM_POST_CREATE", "FORUM_POST_DELETE", "FORUM_PUBLISH_AUDIT_RESULT",
+		"FORUM_REPLY_CREATE", "FORUM_REPLY_DELETE",
+		"FORUM_THREAD_CREATE", "FORUM_THREAD_DELETE", "FORUM_THREAD_UPDATE",
+		"FRIEND_ADD", "FRIEND_DEL",
+		"GROUP_ADD_ROBOT", "GROUP_AT_MESSAGE_CREATE", "GROUP_DEL_ROBOT",
+		"GROUP_JOIN_REQUEST", "GROUP_MEMBER_ADD", "GROUP_MEMBER_REMOVE",
+		"GROUP_MESSAGE_CREATE", "GROUP_MSG_RECEIVE", "GROUP_MSG_REJECT",
+		"GUILD_CREATE", "GUILD_DELETE", "GUILD_MEMBER_ADD", "GUILD_MEMBER_REMOVE",
+		"GUILD_MEMBER_UPDATE", "GUILD_UPDATE", "INTERACTION_CREATE",
+		"MESSAGE_AUDIT_PASS", "MESSAGE_AUDIT_REJECT", "MESSAGE_CREATE", "MESSAGE_DELETE",
+		"MESSAGE_REACTION_ADD", "MESSAGE_REACTION_REMOVE", "PUBLIC_MESSAGE_DELETE",
+		"READY", "RESUMED", "SUBSCRIBE_MESSAGE_STATUS",
+	}
+
+	expectedMissing := map[string]bool{
+		"AUDIO_FINISH": true, "AUDIO_OFF_MIC": true, "AUDIO_ON_MIC": true, "AUDIO_START": true,
+		"GUILD_MEMBER_ADD": true, "GUILD_MEMBER_REMOVE": true, "GUILD_MEMBER_UPDATE": true,
+		"READY": true, "RESUMED": true,
+	}
+
+	for _, eventType := range allEvents {
+		hasStructure := EventDataFor(eventType) != nil
+		if expectedMissing[eventType] && hasStructure {
+			t.Errorf("%s now has a structure: remove it from expectedMissing", eventType)
+		}
+		if !expectedMissing[eventType] && !hasStructure {
+			t.Errorf("%s has no structure: add one, or list it as expected missing", eventType)
+		}
+	}
+
+	if covered := len(allEvents) - len(expectedMissing); covered != 37 {
+		t.Errorf("covered events = %d, want 37", covered)
+	}
+}

@@ -27,6 +27,16 @@ func EventDataFor(eventType string) any {
 	case EventMessageReactionAdd, EventMessageReactionRemove:
 		return &MessageReaction{}
 
+	// FORUM_EVENT.
+	case EventForumThreadCreate, EventForumThreadUpdate, EventForumThreadDelete:
+		return &ForumThreadEvent{}
+	case EventForumPostCreate, EventForumPostDelete:
+		return &ForumPostEvent{}
+	case EventForumReplyCreate, EventForumReplyDelete:
+		return &ForumReplyEvent{}
+	case EventForumPublishAuditResult:
+		return &ForumAuditResult{}
+
 	// GROUP_AND_C2C.
 	case EventC2CMessageCreate:
 		return &C2CMessageCreateData{}
