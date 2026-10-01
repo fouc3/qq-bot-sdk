@@ -15,6 +15,18 @@ func EventDataFor(eventType string) any {
 	case EventChannelCreate, EventChannelUpdate, EventChannelDelete:
 		return &ChannelInfo{}
 
+	// Channel messages, from any of the message intents.
+	case EventMessageCreate, EventAtMessageCreate, EventDirectMessageCreate:
+		return &GuildMessage{}
+	case EventMessageDelete, EventPublicMessageDelete, EventDirectMessageDelete:
+		return &MessageDelete{}
+	case EventMessageAuditPass, EventMessageAuditReject:
+		return &MessageAudited{}
+
+	// GUILD_MESSAGE_REACTIONS.
+	case EventMessageReactionAdd, EventMessageReactionRemove:
+		return &MessageReaction{}
+
 	// GROUP_AND_C2C.
 	case EventC2CMessageCreate:
 		return &C2CMessageCreateData{}
