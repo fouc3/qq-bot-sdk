@@ -49,6 +49,20 @@ QQ 机器人（QQ Bot）开放平台 SDK，Go 实现。参考官方文档：[QQ 
 | `Menu` / `Panel` 校验 | 本地校验文档规定的类型、数量与 https 链接要求 |
 | 消息错误码 | `errcode_message.go`，约 60 个按接口归类的错误码 |
 
+## 代码结构
+
+SDK 是**单包**（`package qqbotsdk`）。这是有意为之：Go 要求方法与其接收者类型同包，所以 51 个 `Client` 方法若按目录拆分，就只能变成多个 client 类型或自由函数——调用方式会变复杂。因此用**文件名前缀分层**，目录既分层又能聚拢排序：
+
+| 前缀 / 文件 | 职责 |
+| --- | --- |
+| `client.go` `config.go` `auth.go` `errors.go` `doc.go` | 客户端、配置、凭证与令牌缓存、错误类型 |
+| `api_*.go` | 每个端点域一个文件，装 `Client` 上的方法（gateway/message/file/reaction/bot/share/menu/panel） |
+| `event.go` `event_dispatcher.go` `event_transport.go` | 网关数据结构与 intents、事件分发器、Transport 接口与生命周期 |
+| `transport_webhook.go` `transport_websocket.go` `transport_sign.go` | 两种事件投递实现，以及回调签名 |
+| `errcode*.go` | 错误码表：公共表 + 各端点族各一份 |
+
+`go doc github.com/fouc3/qq-bot-sdk` 可看完整包文档（含分层导览）。
+
 ## 安装
 
 ```bash
