@@ -79,11 +79,7 @@ SDK 是**单包**（`package qqbotsdk`）。这是有意为之：Go 要求方法
 go get github.com/fouc3/qq-bot-sdk
 ```
 
-该仓库为私有仓库，需配置：
-
-```bash
-go env -w GOPRIVATE=github.com/fouc3/*
-```
+仓库是公开的，直接拉取即可；不需要 `GOPRIVATE` 之类的私有模块配置。
 
 ## 默认值与覆盖
 
