@@ -177,6 +177,13 @@ type C2CMessageCreateData struct {
 //
 //	"<@BOT_MEMBER_OPENID> hello"
 //
+// In a group set to receive mention-only messages the removal is wider than the
+// prefix: every mention is replaced by a space and Mentions comes back empty, so
+// a captured live event of "/重新验证 @someone" read " /重新验证  " with no trace of
+// who was mentioned. A handler that needs to know who else was mentioned there
+// has no way to find out from the event, which is why the command feature treats
+// a mention event as "the bot was mentioned" and reads nothing else from it.
+//
 // A handler that assumes plain text therefore drops the difference between the
 // two events, and should strip a leading <@...> when it needs the message
 // itself.
@@ -197,7 +204,14 @@ type GroupMessageCreateData struct {
 	MessageScene *MessageScene `json:"message_scene,omitempty"`
 	// Attachments are the attached images, files or voice clips.
 	Attachments []MessageAttachment `json:"attachments,omitempty"`
-	// Mentions are the mentioned users, excluding the bot itself.
+	// Mentions are the mentioned users.
+	//
+	// The documentation says the bot itself is excluded. Measurement says
+	// otherwise: on a group message that mentioned the bot and two members, the
+	// platform sent three entries with the bot first, so a caller that takes
+	// Mentions[0] expecting "the first other person" acts on the bot. Acting on
+	// it is refused by the platform with 40103004 (a bot, the group owner or an
+	// administrator cannot be muted), which is how the difference was found.
 	Mentions []User `json:"mentions,omitempty"`
 	// ArkData is set when MessageType is EventMsgTypeArk.
 	ArkData *ARKData `json:"ark_data,omitempty"`
