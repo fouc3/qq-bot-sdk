@@ -51,8 +51,8 @@ QQ 机器人（QQ Bot）开放平台 SDK，Go 实现。参考官方文档：[QQ 
 | `ListJoinApprovalStrategies` / `CreateJoinApprovalStrategy` | 入群自动审批策略列表与创建 |
 | `UpdateJoinApprovalStrategy` / `DeleteJoinApprovalStrategy` / `ExecuteJoinApprovalStrategy` | 策略修改、删除、执行 |
 | `UpdateJoinApprovalStrategyWhitelist` | 策略白名单增删 |
-| `ListGroupMembers` / `GetGroupMember` / `BatchRemoveGroupMembers` | 群成员列表、单个成员、批量移除 |
-| `ListGroupBlacklist` / `UpdateGroupBlacklist` | 群黑名单查询与增删 |
+| `ListGroupMembers` / `GetGroupMember` / `BatchRemoveGroupMembers` ⚠️ | 群成员列表、单个成员、批量移除（**需申请权限**，见群管理章节） |
+| `ListGroupBlacklist` / `UpdateGroupBlacklist` ⚠️ | 群黑名单查询与增删（**需申请权限**，见群管理章节） |
 | `GetMenu` / `SetMenu` | 自定义菜单（命令列表）查询与整体覆盖 `GET/PUT /v2/menu` |
 | `ListPanels` / `CreatePanel` / `GetPanel` | 指令面板列表、创建、详情 |
 | `UpdatePanel` / `DeletePanel` / `UpdatePanelTargets` | 指令面板修改、删除、关联对象增删 |
@@ -807,6 +807,49 @@ whitelist, err := client.UpdateJoinApprovalStrategyWhitelist(ctx, created.Strate
 - 白名单号码是 10000 个上限、且**故意用字符串**（文档说明是为了避开 JS 精度问题），SDK 直接按 `[]string` 收。
 
 > **文档自相矛盾（已按示例实现）**：本组几个 GET 接口（`join_request_list`、`members`、`member_blacklist`、`join_approval_strategy`）把 `cursor`/`limit` 写在**「请求体」**下，但 `members` 的请求示例是 `GET .../members?cursor=` —— 用的是**查询参数**。SDK 按示例用查询参数发送，与面板列表接口的做法一致。
+
+### 需要额外申请权限的接口（2026-10-02 实测）
+
+以下 5 个接口的调用被平台拒绝，返回 `40012010`（`ErrGroupNoAPIPermission`，`应用无接口访问权限`）。**发现日期：2026-10-02。**
+
+| 接口 | 路径 | 发现日期 | 返回 |
+| --- | --- | --- | --- |
+| `ListGroupMembers` | `GET /v2/groups/{group_openid}/members` | 2026-10-02 | `40012010` |
+| `GetGroupMember` | `GET /v2/groups/{group_openid}/members/{member_openid}` | 2026-10-02 | `40012010` |
+| `BatchRemoveGroupMembers` | `POST /v2/groups/{group_openid}/batch_remove_members` | 2026-10-02 | `40012010` |
+| `ListGroupBlacklist` | `GET /v2/groups/{group_openid}/member_blacklist` | 2026-10-02 | `40012010` |
+| `UpdateGroupBlacklist` | `POST /v2/groups/{group_openid}/member_blacklist` | 2026-10-02 | `40012010` |
+
+**为什么确定是权限问题，而不是用错了**：同一时间、同一个群、同一个机器人做的对照实验 ——
+
+- ✅ `SetGroupMemberMute`（禁言成员，改的是可逆状态）**成功**；
+- ❌ 上表 5 个**全部被拒**；
+- 机器人当时**已经是该群管理员**（`GetGroupBotState` 返回 `member_role=admin`）；
+- 控制台里**可见的开关都已打开**（由账号所有者确认）。
+
+三项对照都指向同一个结论：这几个接口要的是**应用级权限**，不是机器人身份或调用姿势。错误文案本身也写着"应用无接口访问权限"。
+
+> 推测（非平台说明）：平台把「可逆的状态修改」与「不可逆 / 涉及成员隐私的操作」分开授权，所以禁言放开了、踢人和成员列表没有。
+
+**在权限开通前的使用建议**：
+
+```go
+members, err := client.ListGroupMembers(ctx, groupOpenID, "")
+if qqbotsdk.IsOpenAPIError(err, qqbotsdk.ErrGroupNoAPIPermission) {
+	// 未开通：不要重试，也不要当成参数错误
+	log.Println("该应用没有群成员管理权限，跳过成员列表")
+	return
+}
+```
+
+**一个影响可用性的副作用**：成员列表拿不到，意味着**成员的 `member_openid` 无法通过接口获取**。它只能从**群消息事件**里读：
+
+```go
+data := value.(*qqbotsdk.GroupMessageCreateData)
+memberOpenID := data.Author.MemberOpenID // 这是拿到成员 openid 的唯一途径
+```
+
+所以禁言这类"按 openid 操作"的接口，必须**先等目标成员在群里发言**才能拿到它的 openid。生产测试就是这么做的（见 `production_group_member_test.go`）。
 
 ## 自定义菜单与指令面板
 
