@@ -175,7 +175,7 @@ type C2CMessageCreateData struct {
 // prefix removed. In full receive mode the mention is still in the text as
 // markup, so a captured live event read:
 //
-//	"<@C478CF64E02874467B2452D5409CA956> hello"
+//	"<@BOT_MEMBER_OPENID> hello"
 //
 // A handler that assumes plain text therefore drops the difference between the
 // two events, and should strip a leading <@...> when it needs the message
