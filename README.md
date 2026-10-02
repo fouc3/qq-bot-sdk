@@ -45,6 +45,14 @@ QQ 机器人（QQ Bot）开放平台 SDK，Go 实现。参考官方文档：[QQ 
 | `GetJoinedGuilds` | 获取机器人已加入的频道列表（分页） |
 | `GenerateShareLink` | 生成机器人分享链接 `POST /v2/generate_url_link` |
 | `RespondInteraction` | 回应互动事件 `PUT /interactions/{interaction_id}` |
+| `GetGroupInfo` / `GetGroupBotState` | 群基本信息、机器人群内状态 |
+| `ListGroupJoinRequests` / `ApproveGroupJoinRequest` | 入群申请列表与审批 |
+| `GetGroupRestrictChatSetting` / `SetGroupMemberMute` | 群禁言查询、成员禁言设置 |
+| `ListJoinApprovalStrategies` / `CreateJoinApprovalStrategy` | 入群自动审批策略列表与创建 |
+| `UpdateJoinApprovalStrategy` / `DeleteJoinApprovalStrategy` / `ExecuteJoinApprovalStrategy` | 策略修改、删除、执行 |
+| `UpdateJoinApprovalStrategyWhitelist` | 策略白名单增删 |
+| `ListGroupMembers` / `GetGroupMember` / `BatchRemoveGroupMembers` | 群成员列表、单个成员、批量移除 |
+| `ListGroupBlacklist` / `UpdateGroupBlacklist` | 群黑名单查询与增删 |
 | `GetMenu` / `SetMenu` | 自定义菜单（命令列表）查询与整体覆盖 `GET/PUT /v2/menu` |
 | `ListPanels` / `CreatePanel` / `GetPanel` | 指令面板列表、创建、详情 |
 | `UpdatePanel` / `DeletePanel` / `UpdatePanelTargets` | 指令面板修改、删除、关联对象增删 |
@@ -697,6 +705,108 @@ url, err := client.GenerateShareLink(ctx, "custom_data_123") // POST /v2/generat
 `callback_data` 选填，**最长 32 字符**（按字符计，非字节），超长会在本地直接报错而不发请求。返回值即响应体的 `data.url`。
 
 > **错误码冲突**：该页的 10001 是「请求参数异常」、10003 是「查询机器人信息异常」，而公共错误码表里 10001=UnknownAccount、10003=UnknownChannel。**同一数字在不同接口含义不同**，所以 `String()` 仍以公共表为准，处理该接口时请按本接口的语义解读这两个码。本页其余码（10002/10044/11004）已定义为 `ErrRequestHeaderInvalid`、`ErrUinFromHeaderFailed`、`ErrGenerateShareARKFailed`。
+
+## 群管理
+
+官方文档：[群管理](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/group/manage/)。共 17 个接口，分四组。
+
+### 群信息与状态
+
+```go
+info, err := client.GetGroupInfo(ctx, groupOpenID)
+// GroupOpenID / GroupName / GroupFingerMemo / GroupClassText / GroupTags / GroupMemberNum
+
+state, err := client.GetGroupBotState(ctx, groupOpenID)
+// MemberOpenID / JoinedAt / AllowProactiveMsg / RecvMsgSetting / MemberRole
+```
+
+`RecvMsgSetting` 用 `GroupRecvMsgAll`、`GroupRecvMsgOnlyMention`、`GroupRecvMsgMentionAndContext` 判断；`MemberRole` 用 `GroupRoleMember`/`GroupRoleOwner`/`GroupRoleAdmin`。`AllowProactiveMsg` 就是"群是否允许主动推送"，发主动消息前可以先查它。
+
+### 入群申请与审批
+
+```go
+page, err := client.ListGroupJoinRequests(ctx, groupOpenID, "", 20) // limit 上限 50
+for _, req := range page.List {
+	log.Printf("%s 申请入群，风险提示 %q，来源 %s", req.Username, req.RiskTips, req.ApplySource)
+}
+
+err = client.ApproveGroupJoinRequest(ctx, groupOpenID, memberOpenID, &qqbotsdk.JoinRequestApproval{
+	Op:                   qqbotsdk.JoinApprovalApprove, // 或 JoinApprovalDecline
+	JoinRequestID:        request.JoinRequestID,
+	RejectReason:         "人数已满",                     // op=decline 时可填
+	AddToMemberBlacklist: true,                        // op=decline 时可填
+})
+```
+
+**机器人必须是群管理员**才能审批，否则平台会拒绝。`JoinRequest` 与事件 `GROUP_JOIN_REQUEST` 的字段基本一致，`VerifyInfo`/`ReviewQA` 两个类型是**共用的**。
+
+### 禁言
+
+```go
+setting, err := client.GetGroupRestrictChatSetting(ctx, groupOpenID)
+// setting.GlobalRule.Mode = GroupMuteNone/Always/Schedule
+// setting.GlobalRule.ScheduleRules / RecurringRules 是定时与周期规则
+// setting.Members 是当前处于禁言中的成员
+
+err = client.SetGroupMemberMute(ctx, groupOpenID, &qqbotsdk.SetGroupMemberMuteRequest{
+	Members: []qqbotsdk.SetMemberMuteState{
+		{Op: qqbotsdk.MemberMuteAdd, MemberOpenID: "M1", MuteExpireAt: "2026-07-22T10:00:00+08:00"},
+		{Op: qqbotsdk.MemberMuteDelete, MemberOpenID: "M2"}, // del 时到期时间可留空表示立即解除
+	},
+})
+```
+
+同样需要管理员身份，**单次最多 20 个**、最长 30 天，且**只能禁言普通成员**（群主、管理员、机器人都不行）。
+
+### 成员与黑名单
+
+```go
+members, err := client.ListGroupMembers(ctx, groupOpenID, "") // 每页最多 30 条，用 NextCursor 翻页
+member, err := client.GetGroupMember(ctx, groupOpenID, memberOpenID)
+
+result, err := client.BatchRemoveGroupMembers(ctx, groupOpenID, &qqbotsdk.BatchRemoveMembersRequest{
+	MemberOpenIDs:        []string{"M1", "M2"}, // 单次最多 20 个
+	AddToMemberBlacklist: true,                 // 同时拉黑，失败的在 result.BlacklistFailedOpenIDs 里
+})
+
+blacklist, err := client.ListGroupBlacklist(ctx, groupOpenID, "", 20) // limit 上限 100
+result2, err := client.UpdateGroupBlacklist(ctx, groupOpenID, &qqbotsdk.UpdateBlacklistRequest{
+	Op:            qqbotsdk.ListOpAdd, // 或 ListOpDelete
+	MemberOpenIDs: []string{"M1"},
+})
+```
+
+> **黑名单的一个坑**：文档明确写「目标成员在群中时无法加入黑名单」，所以流程是**先移除再拉黑**（或一步用 `BatchRemoveGroupMembers` 的 `AddToMemberBlacklist`）。加入失败的 openid 会在响应的 `fail_openids` 里返回。
+
+### 入群自动审批策略
+
+```go
+list, err := client.ListJoinApprovalStrategies(ctx, "", 20) // limit 上限 50
+
+created, err := client.CreateJoinApprovalStrategy(ctx, &qqbotsdk.CreateJoinApprovalStrategyRequest{
+	GroupOpenIDs: []string{groupOpenID},   // 与 GroupIDs 二选一，最多 100 个
+	IsEnable:     qqbotsdk.StrategyEnabled,
+	Remark:       "自动放行",
+})
+
+updated, err := client.UpdateJoinApprovalStrategy(ctx, created.StrategyID,
+	&qqbotsdk.UpdateJoinApprovalStrategyRequest{IsEnable: qqbotsdk.StrategyDisabled})
+
+err = client.DeleteJoinApprovalStrategy(ctx, created.StrategyID)
+err = client.ExecuteJoinApprovalStrategy(ctx, created.StrategyID)
+
+whitelist, err := client.UpdateJoinApprovalStrategyWhitelist(ctx, created.StrategyID,
+	&qqbotsdk.UpdateWhitelistRequest{
+		Op:             qqbotsdk.ListOpAdd,
+		WhitelistUsers: []string{"10001", "10002"}, // 号码用**字符串**，单次最多 10000 个
+	})
+```
+
+- **群标识二选一且不能都传**：`group_openids` 与 `group_ids`（QQ 群号）互斥，同时传或都不传平台都会报错 —— SDK 在发请求前就拦下。
+- `UpdateJoinApprovalStrategy` 的 `GroupAction` **群标识形式要与创建时一致**（文档原话），否则会失败。
+- 白名单号码是 10000 个上限、且**故意用字符串**（文档说明是为了避开 JS 精度问题），SDK 直接按 `[]string` 收。
+
+> **文档自相矛盾（已按示例实现）**：本组几个 GET 接口（`join_request_list`、`members`、`member_blacklist`、`join_approval_strategy`）把 `cursor`/`limit` 写在**「请求体」**下，但 `members` 的请求示例是 `GET .../members?cursor=` —— 用的是**查询参数**。SDK 按示例用查询参数发送，与面板列表接口的做法一致。
 
 ## 自定义菜单与指令面板
 
