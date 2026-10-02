@@ -29,6 +29,9 @@ func (c OpenAPIErrorCode) String() string {
 	if name, ok := interactionErrorNames[c]; ok {
 		return name
 	}
+	if name, ok := groupErrorNames[c]; ok {
+		return name
+	}
 	return ""
 }
 
