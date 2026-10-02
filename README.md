@@ -109,14 +109,46 @@ client := qqbotsdk.NewClient("APPID", "CLIENTSECRET",
 
 ## 启动配置
 
-凭证来自**二选一**的环境变量，在启动时校验，缺失则立即失败，而不是等到第一次 API 调用才暴露：
+**配置由调用方传入**。SDK 不替你决定配置从哪来 —— 环境变量、命令行参数、配置文件、密钥管理服务都行，那是应用层的事。所以主路径是显式构造：
 
-| 变量 | 说明 |
+```go
+client, err := qqbotsdk.NewClientFromConfig(qqbotsdk.Config{
+	AppID:        "1234567890",
+	ClientSecret: "******",
+	// 或只给已签发的 token：
+	// AccessToken: "******",
+})
+```
+
+凭证**二选一**，在 `NewClientFromConfig` 里即时校验，缺失直接返回 `ErrNoCredentials`，不会拖到第一次 API 调用才暴露：
+
+| 字段 | 说明 |
 | --- | --- |
-| `ACCESS_TOKEN` | 已签发的凭证。设置后直接使用，不再获取、不再刷新 |
-| `APPID` + `CLIENTSECRET` | 机器人凭证。SDK 自动获取并刷新 access_token |
+| `AccessToken` | 已签发的凭证。设置后直接使用，不再获取、不再刷新 |
+| `AppID` + `ClientSecret` | 机器人凭证。SDK 自动获取并刷新 access_token |
 
-`ACCESS_TOKEN` 优先：它已设置时不会再使用 `APPID`/`CLIENTSECRET`，便于运维临时固定一个 token 而不必清空其它变量。两者都不完整时返回 `ErrNoCredentials`。
+最简形式可以直接给两个字符串：
+
+```go
+client := qqbotsdk.NewClient("1234567890", "******")
+```
+
+> `NewClient` 不返回 error，所以它**不做启动期校验**：凭证缺失时不会立刻失败，而是在**首次请求**返回同一个 `ErrNoCredentials`（实测确认）。要在启动时就发现问题就用 `NewClientFromConfig`。
+
+需要定制时用 Option 叠加：
+
+```go
+client, err := qqbotsdk.NewClientFromConfig(cfg,
+	qqbotsdk.WithHTTPClient(hc),
+	qqbotsdk.WithBaseURL("https://api.bot.qq.com"),
+)
+```
+
+`Config` 是纯数据结构（`Validate()` 可单独调用），`Config.String()` 会把密钥与 token 脱敏为 `<set>`，可安全写日志。
+
+### 可选便利：从环境变量读取
+
+如果不想自己写加载逻辑，SDK 提供一个便利函数，直接读 `os.LookupEnv`：
 
 ```go
 import "errors"
@@ -130,15 +162,20 @@ if err != nil {
 }
 ```
 
-也可以自行组装配置：
+| 变量 | 说明 |
+| --- | --- |
+| `ACCESS_TOKEN` | 已签发的凭证。设置后直接使用，不再获取、不再刷新 |
+| `APPID` + `CLIENTSECRET` | 机器人凭证。SDK 自动获取并刷新 access_token |
+
+> **注意这个便利函数内含一条策略**：`ACCESS_TOKEN` 优先于 `APPID`/`CLIENTSECRET`（便于运维临时固定一个 token 而不必清空其它变量）。**优先级属于应用层决策** —— 如果你的程序想让 `--appid` 参数覆盖环境变量，就不要用 `NewClientFromEnv`，自己读环境变量组装 `Config` 再传给 `NewClientFromConfig`。
+
+`LoadConfig()` 返回同样的 `Config`，便于"先读环境变量、再按自己的规则覆盖其中几项"：
 
 ```go
-cfg, err := qqbotsdk.LoadConfig()
-// 或 cfg := qqbotsdk.Config{AccessToken: "...", BaseURL: "..."}
-client, err := qqbotsdk.NewClientFromConfig(cfg, qqbotsdk.WithHTTPClient(hc))
+cfg, err := qqbotsdk.LoadConfig() // 读 env，规则同上
+cfg.BaseURL = "https://staging.example.com"
+client, err := qqbotsdk.NewClientFromConfig(cfg)
 ```
-
-`Config.String()` 会把密钥与 token 脱敏为 `<set>`，可安全写日志。
 
 ## 错误处理
 
